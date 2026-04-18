@@ -2,18 +2,18 @@
 # test-scan.sh — Integration tests for src/scanner/scan.sh
 #
 # Run from any directory:
-#   bash tests/scanner/test-scan.sh
+#   bash src/tests/scanner/test-scan.sh
 #
 # Prerequisites:
-#   - bash tests/fixtures/setup.sh must have been run first
+#   - bash src/tests/fixtures/setup.sh must have been run first
 #   - jq must be available on PATH
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SCAN="$REPO_ROOT/src/scanner/scan.sh"
-FIXTURE="$REPO_ROOT/tests/fixtures/sample-repo"
+FIXTURE="$REPO_ROOT/src/tests/fixtures/sample-repo"
 
 PASS=0
 FAIL=0
@@ -66,7 +66,7 @@ fi
 
 if [ ! -d "$FIXTURE" ]; then
   echo "  ERROR: fixture not found at $FIXTURE" >&2
-  echo "  Run: bash tests/fixtures/setup.sh" >&2
+  echo "  Run: bash src/tests/fixtures/setup.sh" >&2
   exit 1
 fi
 

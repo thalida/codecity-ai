@@ -4,8 +4,8 @@
 # Brainstorm artifacts
 .superpowers/
 
-# Generated test fixtures (run tests/fixtures/setup.sh to build)
-tests/fixtures/sample-repo/
+# Generated test fixtures (run src/tests/fixtures/setup.sh to build)
+src/tests/fixtures/sample-repo/
 
 # OS
 .DS_Store
