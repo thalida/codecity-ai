@@ -4,6 +4,9 @@
 # Brainstorm artifacts
 .superpowers/
 
+# Generated test fixtures (run tests/fixtures/setup.sh to build)
+tests/fixtures/sample-repo/
+
 # OS
 .DS_Store
 Thumbs.db
