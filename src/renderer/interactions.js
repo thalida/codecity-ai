@@ -59,16 +59,16 @@ function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth
 //   Miss (empty space click) → closeSidebar()
 //
 // `building.node` is the manifest node stored by layout.js on each building.
-// `building.nodeType` is "file" or "directory".
+// `building.file` is the manifest node; `building.file.type` is "file" or "directory".
 // -----------------------------------------------------------------------------
 function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
   var hit = hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight);
 
   if (hit) {
-    if (hit.nodeType === 'directory') {
-      showDirSidebar(hit.node);
-    } else {
-      showFileSidebar(hit.node);
+    if (hit.file && hit.file.type === 'directory') {
+      showDirSidebar(hit.file);
+    } else if (hit.file) {
+      showFileSidebar(hit.file);
     }
   } else {
     closeSidebar();
@@ -128,11 +128,11 @@ function startRenderLoop(canvas, manifest, config) {
 
   for (var i = 0; i < buildings.length; i++) {
     var b = buildings[i];
-    if (b.nodeType === 'file' && b.node) {
-      b.color = getBuildingColor(b.node, palette, dateRanges, config);
+    if (b.file && b.file.type === 'file') {
+      b.color = getBuildingColor(b.file, palette, dateRanges, config);
     } else {
       // Directory blocks get a neutral dark color
-      b.color = b.color || 'hsl(220, 15%, 25%)';
+      b.color = 'hsl(220, 15%, 25%)';
     }
   }
 
