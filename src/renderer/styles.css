@@ -1,0 +1,319 @@
+/* =============================================================================
+   styles.css — Dark Theme for CodeCity AI
+   Matches the isometric city aesthetic: deep space background, cool neutrals,
+   crisp monospace for code metadata, subtle transitions.
+   ============================================================================= */
+
+
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0b10;
+  color: #e0e0e0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+
+/* ── Sidebar shell ──────────────────────────────────────────────────────────── */
+
+#sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100%;
+  background: #12131a;
+  border-left: 1px solid #1e2030;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+#sidebar.open {
+  transform: translateX(0);
+}
+
+/* Scrollable content area inside the sidebar */
+.sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px 32px;
+}
+
+
+/* ── Sidebar header ─────────────────────────────────────────────────────────── */
+
+.sidebar-header {
+  padding: 24px 20px 16px;
+  border-bottom: 1px solid #1e2030;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #f0f0f0;
+  word-break: break-all;
+  line-height: 1.3;
+  margin-bottom: 6px;
+}
+
+.sidebar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+/* Close button inside sidebar header */
+.sidebar-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-close:hover {
+  color: #e0e0e0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+
+/* ── Extension badge ────────────────────────────────────────────────────────── */
+
+.ext-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(108, 138, 255, 0.25);
+  border: 1px solid rgba(108, 138, 255, 0.35);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+
+/* ── Path row with copy button ──────────────────────────────────────────────── */
+
+.sidebar-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sidebar-path {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 11px;
+  color: #6a7090;
+  word-break: break-all;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.copy-btn {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #252838;
+  border-radius: 5px;
+  color: #6a7090;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.copy-btn:hover {
+  color: #c0c4d8;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: #363a52;
+}
+
+/* "Copied!" state — briefly shown after a successful copy */
+.copy-btn.copied {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+
+/* ── Sidebar sections ───────────────────────────────────────────────────────── */
+
+.sidebar-section {
+  padding-top: 20px;
+}
+
+.sidebar-section + .sidebar-section {
+  border-top: 1px solid #1a1c28;
+  margin-top: 4px;
+}
+
+.sidebar-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #44485e;
+  margin-bottom: 12px;
+}
+
+
+/* ── Stats grid ─────────────────────────────────────────────────────────────── */
+
+.sidebar-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #44485e;
+}
+
+.stat-value {
+  font-size: 13px;
+  color: #c8ccde;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Source tag inside a stat: shows "(git)" or "(fs)" */
+.stat-source {
+  font-size: 9px;
+  color: #44485e;
+  font-weight: 400;
+  margin-left: 3px;
+}
+
+
+/* ── Contributors list ──────────────────────────────────────────────────────── */
+
+.sidebar-contributors {
+  font-size: 12px;
+  color: #8a8ea0;
+  line-height: 1.6;
+}
+
+/* Each contributor name is inline; they flow naturally as comma-separated text */
+.contributor-name {
+  color: #a0a4bc;
+}
+
+
+/* ── Directory type badge ───────────────────────────────────────────────────── */
+
+.dir-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(90, 200, 180, 0.2);
+  border: 1px solid rgba(90, 200, 180, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+
+/* ── Custom scrollbar (WebKit) ──────────────────────────────────────────────── */
+
+#sidebar ::-webkit-scrollbar {
+  width: 4px;
+}
+
+#sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#sidebar ::-webkit-scrollbar-thumb {
+  background: #252838;
+  border-radius: 4px;
+}
+
+#sidebar ::-webkit-scrollbar-thumb:hover {
+  background: #363a52;
+}
+
+/* Firefox */
+#sidebar .sidebar-body {
+  scrollbar-width: thin;
+  scrollbar-color: #252838 transparent;
+}
+
+
+/* ── Selected building glow (applied by interactions.js) ────────────────────── */
+
+/* interactions.js adds .building-selected to a canvas overlay element if one
+   exists, or manages selection state internally. This class is a hook for
+   future visual indicator enhancements (e.g., a pulsing dot or label). */
+.building-selected-indicator {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(108, 138, 255, 0.15);
+  border: 1px solid rgba(108, 138, 255, 0.35);
+  border-radius: 100px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: #8a9eff;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.building-selected-indicator.visible {
+  opacity: 1;
+}
