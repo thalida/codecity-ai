@@ -1,0 +1,16 @@
+# Output
+.codecity/
+
+# Brainstorm artifacts
+.superpowers/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
