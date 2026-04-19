@@ -1,8 +1,9 @@
 # Output
 .codecity/
 
-# Brainstorm artifacts
+# Tool artifacts
 .superpowers/
+docs/superpowers/
 
 # Generated test fixtures (run src/tests/fixtures/setup.sh to build)
 src/tests/fixtures/sample-repo/
@@ -10,6 +11,13 @@ src/tests/fixtures/sample-repo/
 # OS
 .DS_Store
 Thumbs.db
+
+# Dependencies
+node_modules/
+
+# Playwright
+test-results/
+playwright-report/
 
 # Editors
 *.swp
