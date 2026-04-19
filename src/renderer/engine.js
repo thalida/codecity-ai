@@ -149,6 +149,17 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   //   Top:        z = h    (plft → prft → prbt → plbt)
 
   var colorFront = shadeColor(hslColor, -22);
+  var colorBack  = shadeColor(hslColor, -40);  // darkest, rarely visible but seals the shape
+
+  // ---- Draw back wall (y = +hd) — drawn first so it's behind everything -----
+  ctx.beginPath();
+  ctx.moveTo(tx(prb),  ty(prb));
+  ctx.lineTo(tx(plb),  ty(plb));
+  ctx.lineTo(tx(plbt), ty(plbt));
+  ctx.lineTo(tx(prbt), ty(prbt));
+  ctx.closePath();
+  ctx.fillStyle = colorBack;
+  ctx.fill();
 
   // ---- Draw left wall (x = -hw, shadow side) --------------------------------
   ctx.beginPath();
