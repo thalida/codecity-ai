@@ -1,611 +1,688 @@
 // =============================================================================
-// engine.js — Isometric Rendering Engine
-// CodeCity AI — Low-level drawing primitives for the isometric 2.5D city view.
+// engine.js — Three.js Scene Builder for CodeCity AI
 //
-// All functions are declared with `function` keyword so they are hoisted and
-// available globally after script concatenation.
+// Builds a 3D scene from the layout output. The scene is a flat ground plane
+// oriented so world-X runs east-west and world-Y runs north-south, with Z up.
+// Each building is a BoxGeometry mesh whose side faces carry a CanvasTexture
+// painted with the floor-banding, window grid, and (on the ground floor) a
+// door — the same visual language the old 2D isometric renderer used.
+//
+// Depends on THREE being available as a global (loaded via CDN before this file).
+//
+// All functions are declared with `function` so they are hoisted and globally
+// available after script concatenation.
 // =============================================================================
 
-// -----------------------------------------------------------------------------
-// Isometric Projection Constants
-// ISO_ANGLE = 30° — the classic isometric angle that produces equal-looking
-// axes. COS_A and SIN_A are precomputed for performance.
-// -----------------------------------------------------------------------------
-var ISO_ANGLE = Math.PI / 6;        // 30 degrees
-var COS_A = Math.cos(ISO_ANGLE);    // ≈ 0.866
-var SIN_A = Math.sin(ISO_ANGLE);    // 0.5
+/* global THREE */
+/* exported createBuildingMesh, createStreetMesh, createPathMesh,
+            createRootGem, createStreetLabels, buildCityScene,
+            shadeColor, shadeAndShiftHue, shadeByRatio */
 
 
 // -----------------------------------------------------------------------------
-// isoProject(x, y, z) → { sx, sy }
-//
-// Converts 3D world coordinates to 2D isometric screen coordinates.
-//   x  — world X (east-west axis)
-//   y  — world Y (north-south / depth axis)
-//   z  — world Z (vertical / height axis)
-//
-// The resulting sx, sy are relative offsets from the canvas origin. Callers
-// are expected to add their pan/translate offset before drawing.
-// -----------------------------------------------------------------------------
-function isoProject(x, y, z) {
-  return {
-    sx: (x - y) * COS_A,
-    sy: (x + y) * SIN_A - z
-  };
-}
-
-
-// -----------------------------------------------------------------------------
-// shadeColor(hslString, amount) → hslString
-//
-// Adjusts the lightness of an HSL color string by `amount` (positive = lighter,
-// negative = darker). Clamps lightness to [0, 100].
-//
-// Example:
-//   shadeColor("hsl(210, 80%, 50%)", -20) → "hsl(210, 80%, 30%)"
-// -----------------------------------------------------------------------------
-function shadeColor(hslString, amount) {
-  var components = hslToComponents(hslString);
-  var newL = Math.max(0, Math.min(100, components.l + amount));
-  return componentsToHsl(components.h, components.s, newL);
-}
-
-
-// -----------------------------------------------------------------------------
-// hslToComponents(hslString) → { h, s, l }
-//
-// Parses an HSL string of the form "hsl(H, S%, L%)" and returns the numeric
-// components. Handles both integer and decimal values.
+// HSL helpers — unchanged from the canvas renderer; still used by colors.js
+// consumers that want to shade or tweak the computed building color.
 // -----------------------------------------------------------------------------
 function hslToComponents(hslString) {
-  // Strip "hsl(" prefix and ")" suffix, then split on commas
   var inner = hslString.replace(/^hsl\(/i, '').replace(/\)$/, '');
   var parts = inner.split(',');
   return {
     h: parseFloat(parts[0].trim()),
-    s: parseFloat(parts[1].trim()),   // strips the "%" via parseFloat
-    l: parseFloat(parts[2].trim())    // strips the "%" via parseFloat
+    s: parseFloat(parts[1].trim()),
+    l: parseFloat(parts[2].trim())
   };
 }
 
-
-// -----------------------------------------------------------------------------
-// componentsToHsl(h, s, l) → hslString
-//
-// Rebuilds an HSL string from numeric components. Values are rounded to one
-// decimal place to keep strings compact.
-// -----------------------------------------------------------------------------
 function componentsToHsl(h, s, l) {
   return 'hsl(' + Math.round(h) + ', ' + s.toFixed(1) + '%, ' + l.toFixed(1) + '%)';
 }
 
-
-// -----------------------------------------------------------------------------
-// drawBuilding(ctx, cx, cy, w, d, h, hslColor)
-//
-// Renders a building as a STACK OF FLOORS, where each floor is a complete unit
-// (walls + ceiling slab + windows). The number of floors is derived from the
-// requested building height divided by FLOOR_HEIGHT (a fixed real-world size),
-// so a 30-unit building has 3 floors and a 60-unit building has 6 — every
-// floor in every building is the same size. The actual rendered height is
-// snapped to the nearest multiple of FLOOR_HEIGHT.
-//
-// Per floor: walls (front + right) + a thin "ceiling slab" sitting on top,
-// slightly darker than the walls so it reads as a horizontal banding between
-// floors. Each floor's wall has one row of windows. The bottom floor's front
-// wall has the entrance door instead of a window row.
-//
-// Painter's order is implicit: floors are drawn bottom-to-top, and within
-// each floor the front wall, right wall, slab faces, top (only on the topmost
-// floor), windows, and door are drawn in z-order so nothing is overdrawn.
-// -----------------------------------------------------------------------------
-function drawBuilding(ctx, cx, cy, w, d, h, hslColor, orientation) {
-  var hw = w / 2;
-  var hd = d / 2;
-
-  function tx(p) { return cx + p.sx; }
-  function ty(p) { return cy + p.sy; }
-
-  ctx.globalAlpha = 1;
-
-  // Floor structure — fixed-size floors. Number of floors derived from height.
-  var FLOOR_HEIGHT = 10;
-  var floors = Math.max(1, Math.round(h / FLOOR_HEIGHT));
-  var slabT  = 1;                      // ceiling slab thickness per floor
-  var wallH  = FLOOR_HEIGHT - slabT;   // wall height per floor
-
-  // Orientation determines which world face has the entrance door.
-  //   's' (south, default) — door on +y face (visible on screen-LEFT)
-  //   'e' (east)           — door on +x face (visible on screen-RIGHT)
-  //   'n' (north)          — door on -y face (HIDDEN from this iso angle)
-  //   'w' (west)           — door on -x face (HIDDEN from this iso angle)
-  // The face with the door also skips its bottom-floor window row.
-  orientation = orientation || 's';
-  var doorFace = (orientation === 's') ? 'front'
-              : (orientation === 'e') ? 'right'
-              : 'none';
-
-  // Face & accent colors — same hue shifts as before for sun/sky lighting.
-  var colorTop   = hslColor;
-  var colorFront = _shadeAndShiftHue(hslColor, -10,  18);  // lit, warmer
-  var colorRight = _shadeAndShiftHue(hslColor, -32, -18);  // shadow, cooler
-  var slabFront  = _shadeAndShiftHue(hslColor, -18,  18);  // banding stripe (front)
-  var slabRight  = _shadeAndShiftHue(hslColor, -36, -18);  // banding stripe (right)
-  var winColor   = shadeColor(hslColor, 20);
-  var doorColor  = _shadeAndShiftHue(hslColor, -55,   0);
-
-  var frontCols = Math.max(1, Math.min(5, Math.floor(w / 8)));
-  var rightCols = Math.max(1, Math.min(5, Math.floor(d / 8)));
-
-  // Stack floors bottom → top. Each floor occupies z ∈ [fi·FH, (fi+1)·FH].
-  for (var fi = 0; fi < floors; fi++) {
-    var zWb = fi * FLOOR_HEIGHT;        // wall bottom of this floor
-    var zWt = zWb + wallH;              // wall top (= slab bottom)
-    var zSt = (fi + 1) * FLOOR_HEIGHT;  // slab top (= top of this floor)
-
-    // Project all corners we'll need for this floor
-    var wprb  = isoProject( hw,  hd, zWb);
-    var wplb  = isoProject(-hw,  hd, zWb);
-    var wprf  = isoProject( hw, -hd, zWb);
-    var wprbt = isoProject( hw,  hd, zWt);
-    var wplbt = isoProject(-hw,  hd, zWt);
-    var wprft = isoProject( hw, -hd, zWt);
-    var sprbt = isoProject( hw,  hd, zSt);
-    var splbt = isoProject(-hw,  hd, zSt);
-    var sprft = isoProject( hw, -hd, zSt);
-
-    // ---- Wall: FRONT face (y = +hd) ----
-    ctx.beginPath();
-    ctx.moveTo(tx(wprb),  ty(wprb));
-    ctx.lineTo(tx(wplb),  ty(wplb));
-    ctx.lineTo(tx(wplbt), ty(wplbt));
-    ctx.lineTo(tx(wprbt), ty(wprbt));
-    ctx.closePath();
-    ctx.fillStyle = colorFront;
-    ctx.fill();
-
-    // ---- Wall: RIGHT face (x = +hw) ----
-    ctx.beginPath();
-    ctx.moveTo(tx(wprf),  ty(wprf));
-    ctx.lineTo(tx(wprb),  ty(wprb));
-    ctx.lineTo(tx(wprbt), ty(wprbt));
-    ctx.lineTo(tx(wprft), ty(wprft));
-    ctx.closePath();
-    ctx.fillStyle = colorRight;
-    ctx.fill();
-
-    // ---- Ceiling slab: FRONT face (thin band atop the wall) ----
-    ctx.beginPath();
-    ctx.moveTo(tx(wprbt), ty(wprbt));
-    ctx.lineTo(tx(wplbt), ty(wplbt));
-    ctx.lineTo(tx(splbt), ty(splbt));
-    ctx.lineTo(tx(sprbt), ty(sprbt));
-    ctx.closePath();
-    ctx.fillStyle = slabFront;
-    ctx.fill();
-
-    // ---- Ceiling slab: RIGHT face ----
-    ctx.beginPath();
-    ctx.moveTo(tx(wprft), ty(wprft));
-    ctx.lineTo(tx(wprbt), ty(wprbt));
-    ctx.lineTo(tx(sprbt), ty(sprbt));
-    ctx.lineTo(tx(sprft), ty(sprft));
-    ctx.closePath();
-    ctx.fillStyle = slabRight;
-    ctx.fill();
-
-    // ---- Top face: ONLY for the topmost floor (= the building's roof) ----
-    if (fi === floors - 1) {
-      var pTopFront = isoProject(-hw, -hd, zSt);
-      ctx.beginPath();
-      ctx.moveTo(tx(sprft),     ty(sprft));
-      ctx.lineTo(tx(sprbt),     ty(sprbt));
-      ctx.lineTo(tx(splbt),     ty(splbt));
-      ctx.lineTo(tx(pTopFront), ty(pTopFront));
-      ctx.closePath();
-      ctx.fillStyle = colorTop;
-      ctx.fill();
-    }
-
-    // ---- Windows: one row per floor ----
-    // The face with the door skips its bottom-floor row (door takes that space).
-    var skipFront = (fi === 0 && doorFace === 'front');
-    var skipRight = (fi === 0 && doorFace === 'right');
-
-    if (!skipFront) {
-      _drawFaceWindows(ctx, cx, cy, frontCols, 1,
-        wprb, wplb, wprbt, wplbt, 0.40, 0.50, winColor);
-    }
-    if (!skipRight) {
-      _drawFaceWindows(ctx, cx, cy, rightCols, 1,
-        wprf, wprb, wprft, wprbt, 0.40, 0.50, winColor);
-    }
-
-    // ---- Door: bottom floor only, on the door face if visible ----
-    if (fi === 0 && doorFace !== 'none') {
-      var dBl, dBr, dTl, dTr, doorWFrac;
-      if (doorFace === 'front') {
-        // Front face — U=0 at wprb (screen-LEFT), U=1 at wplb (screen-RIGHT).
-        dBl = wprb; dBr = wplb; dTl = wprbt; dTr = wplbt;
-        doorWFrac = Math.min(0.30, 3.5 / w);
-      } else {
-        // Right face — U=0 at wprb (screen-LEFT), U=1 at wprf (screen-RIGHT).
-        dBl = wprb; dBr = wprf; dTl = wprbt; dTr = wprft;
-        doorWFrac = Math.min(0.30, 3.5 / d);
-      }
-      var doorHFrac = 0.65;
-      var doorU0 = 0.5 - doorWFrac / 2;
-      var doorU1 = 0.5 + doorWFrac / 2;
-
-      var doorPt = function (u, v) {
-        var bx   = dBl.sx + u * (dBr.sx - dBl.sx);
-        var by   = dBl.sy + u * (dBr.sy - dBl.sy);
-        var topx = dTl.sx + u * (dTr.sx - dTl.sx);
-        var topy = dTl.sy + u * (dTr.sy - dTl.sy);
-        return {
-          sx: cx + bx + v * (topx - bx),
-          sy: cy + by + v * (topy - by)
-        };
-      };
-
-      var d00 = doorPt(doorU0, 0);
-      var d10 = doorPt(doorU1, 0);
-      var d11 = doorPt(doorU1, doorHFrac);
-      var d01 = doorPt(doorU0, doorHFrac);
-
-      ctx.beginPath();
-      ctx.moveTo(d00.sx, d00.sy);
-      ctx.lineTo(d10.sx, d10.sy);
-      ctx.lineTo(d11.sx, d11.sy);
-      ctx.lineTo(d01.sx, d01.sy);
-      ctx.closePath();
-      ctx.fillStyle = doorColor;
-      ctx.fill();
-    }
-  }
+function shadeColor(hslString, amount) {
+  var c = hslToComponents(hslString);
+  var newL = Math.max(0, Math.min(100, c.l + amount));
+  return componentsToHsl(c.h, c.s, newL);
 }
 
-
-// -----------------------------------------------------------------------------
-// _shadeAndShiftHue(hslString, lightnessDelta, hueDelta) → hslString
-//
-// Like shadeColor but also rotates the hue. Used for face shading: positive
-// hueDelta warms (toward yellow/red), negative cools (toward blue/cyan).
-// -----------------------------------------------------------------------------
-function _shadeAndShiftHue(hslString, lightnessDelta, hueDelta) {
+function shadeAndShiftHue(hslString, lightnessDelta, hueDelta, minLightness) {
   var c = hslToComponents(hslString);
-  var newL = Math.max(0, Math.min(100, c.l + lightnessDelta));
+  var floor = (minLightness != null) ? minLightness : 0;
+  var newL = Math.max(floor, Math.min(100, c.l + lightnessDelta));
+  var newH = ((c.h + hueDelta) % 360 + 360) % 360;
+  return componentsToHsl(newH, c.s, newL);
+}
+
+// Multiplicative darkening with an absolute floor. Used for side walls so
+// that contrast against the front face scales with the base lightness — dim
+// files still have visibly darker sides without ever crushing to black.
+function shadeByRatio(hslString, ratio, hueDelta, floor) {
+  var c = hslToComponents(hslString);
+  var newL = Math.max(floor, c.l * ratio);
   var newH = ((c.h + hueDelta) % 360 + 360) % 360;
   return componentsToHsl(newH, c.s, newL);
 }
 
 
 // -----------------------------------------------------------------------------
-// _drawBuildingWindows (private helper)
-//
-// Draws proportional window grids on the right and left faces of a building.
-// Window count, size, and spacing are derived from building dimensions so they
-// scale naturally. Called only by drawBuilding when the building is large enough.
-//
-// Windows are drawn as small semi-transparent bright rectangles approximated
-// as isometric parallelograms on each face.
+// Scene-wide constants
 // -----------------------------------------------------------------------------
-function _drawBuildingWindows(ctx, cx, cy, w, d, h, hslColor,
-  plf, prf, prb, prbt, prft, plft, plbt, plb) {
-
-  // Window color — a lighter, fully opaque version of the building color
-  // Using transparent windows caused see-through artifacts when buildings overlap
-  var winColor = shadeColor(hslColor, 20);
-
-  // Only draw windows on the 2 visible walls (left and right).
-  // The y=-hd and y=+hd faces are not visible in this isometric projection.
-  var colsPerWall = Math.max(1, Math.min(5, Math.floor(d / 8)));
-  var rows        = Math.max(1, Math.min(8, Math.floor(h / 10)));
-
-  var winWidthFrac  = 0.35;
-  var winHeightFrac = 0.40;
-
-  // ---- Left wall windows (x = -hw) -----------------------------------------
-  // Bottom edge: plb → plf, Top edge: plbt → plft
-  _drawFaceWindows(ctx, cx, cy, colsPerWall, rows,
-    plb, plf, plbt, plft, winWidthFrac, winHeightFrac, winColor);
-
-  // ---- Right wall windows (x = +hw) ----------------------------------------
-  // Bottom edge: prf → prb, Top edge: prft → prbt
-  _drawFaceWindows(ctx, cx, cy, colsPerWall, rows,
-    prf, prb, prft, prbt, winWidthFrac, winHeightFrac, winColor);
-}
+var FLOOR_HEIGHT = 10;                  // one floor = 10 world units tall
+var STREET_COLOR_ASPHALT  = 0x1a1d28;
+var STREET_COLOR_SIDEWALK = 0x2a3050;
+var GROUND_COLOR          = 0x0a0b10;
 
 
 // -----------------------------------------------------------------------------
-// _drawFaceWindows (private helper)
+// _buildFacadeTexture(opts) -> THREE.CanvasTexture
 //
-// Draws a grid of windows on a single isometric building face.
+// Paints the side of a building onto a 2D canvas and returns it as a Three.js
+// texture. The texture encodes:
+//   - the wall base color
+//   - a thin darker slab band at each floor ceiling
+//   - a grid of lighter window rectangles, one row per floor
+//   - (optional) a door on the ground floor
 //
-// The face is defined by four corner projected points (already in raw isoProject
-// coordinate space, without cx/cy offset — the offset is applied here):
-//   bl — bottom-left corner of face (isoProject result, no cx/cy)
-//   br — bottom-right corner of face
-//   tl — top-left corner of face
-//   tr — top-right corner of face
-//
-// We use bilinear interpolation across the face to place each window cell,
-// which naturally handles the isometric skew of the face.
+// The texture is sampled across the full face, so widths/heights in the
+// building mesh are real-world units — the texture stretches to fit.
 // -----------------------------------------------------------------------------
-function _drawFaceWindows(ctx, cx, cy, cols, rows, bl, br, tl, tr,
-  winWidthFrac, winHeightFrac, winColor, startRow) {
+function _buildFacadeTexture(opts) {
+  var floors     = opts.floors;
+  var cols       = opts.cols;
+  var wallColor  = opts.wallColor;
+  var slabColor  = opts.slabColor;
+  var winColor   = opts.winColor;
+  var doorColor  = opts.doorColor;
+  var hasDoor    = !!opts.hasDoor;
 
-  // startRow lets a caller skip the bottom-most N rows while keeping the
-  // overall row spacing intact (so windows on different faces can stay
-  // aligned to the same grid even if some rows are omitted).
-  startRow = startRow || 0;
+  // Pixel canvas — 64 px per floor vertically gives enough room for a window
+  // row that reads clearly at typical zoom. 128 px wide per column.
+  var pxPerFloor = 64;
+  var pxPerCol   = 128;
+  var width      = Math.max(128, pxPerCol * cols);
+  var height     = Math.max(64,  pxPerFloor * floors);
 
-  // Bilinear interpolation on a face defined by raw isoProject corners.
-  // U=0 → left edge, U=1 → right edge.
-  // V=0 → bottom edge, V=1 → top edge.
-  // Returns screen-space coordinates (cx/cy applied).
-  function facePoint(u, v) {
-    // Interpolate along bottom edge at fraction U
-    var bx = bl.sx + u * (br.sx - bl.sx);
-    var by = bl.sy + u * (br.sy - bl.sy);
-    // Interpolate along top edge at fraction U
-    var topx = tl.sx + u * (tr.sx - tl.sx);
-    var topy = tl.sy + u * (tr.sy - tl.sy);
-    // Interpolate vertically between bottom and top at fraction V
-    return {
-      sx: cx + bx + v * (topx - bx),
-      sy: cy + by + v * (topy - by)
-    };
+  var canvas = document.createElement('canvas');
+  canvas.width  = width;
+  canvas.height = height;
+  var ctx = canvas.getContext('2d');
+
+  // Base wall color
+  ctx.fillStyle = wallColor;
+  ctx.fillRect(0, 0, width, height);
+
+  // Slab band at the top of every floor (a thin horizontal stripe)
+  ctx.fillStyle = slabColor;
+  var slabPx = Math.max(3, Math.floor(pxPerFloor * 0.12));
+  for (var fi = 0; fi < floors; fi++) {
+    // Texture Y=0 is the TOP of the face. Floor `fi` (counting from the
+    // ground) occupies texture rows [height - (fi+1)*pxPerFloor, height - fi*pxPerFloor].
+    // The slab sits at the top of that span.
+    var bandTop = height - (fi + 1) * pxPerFloor;
+    ctx.fillRect(0, bandTop, width, slabPx);
   }
 
-  var margin = 0.1; // fraction of face kept as border (no windows in border zone)
+  // Windows — one row per floor, `cols` columns across, inset within a
+  // margin on each face edge.
+  var marginX = Math.floor(width  * 0.08);
+  var cellW   = (width - 2 * marginX) / cols;
+  var winW    = Math.floor(cellW * 0.45);
+  var winH    = Math.floor(pxPerFloor * 0.45);
 
-  for (var row = startRow; row < rows; row++) {
-    for (var col = 0; col < cols; col++) {
-      // Cell bounds in [0,1] face-UV space, inset by margin
-      var cellU0 = margin + (col     / cols) * (1 - 2 * margin);
-      var cellU1 = margin + ((col+1) / cols) * (1 - 2 * margin);
-      var cellV0 = margin + (row     / rows) * (1 - 2 * margin);
-      var cellV1 = margin + ((row+1) / rows) * (1 - 2 * margin);
+  ctx.fillStyle = winColor;
+  for (var f = 0; f < floors; f++) {
+    var floorBottomPx = height - f * pxPerFloor;
+    var floorTopPx    = floorBottomPx - pxPerFloor;
+    // Window row sits roughly centered in the floor, above the slab band.
+    var winCenterY    = floorTopPx + slabPx + (pxPerFloor - slabPx) / 2;
+    var winY          = Math.floor(winCenterY - winH / 2);
 
-      // Window UV within the cell (centered, smaller than the cell)
-      var winU0 = cellU0 + (cellU1 - cellU0) * (0.5 - winWidthFrac  / 2);
-      var winU1 = cellU0 + (cellU1 - cellU0) * (0.5 + winWidthFrac  / 2);
-      var winV0 = cellV0 + (cellV1 - cellV0) * (0.5 - winHeightFrac / 2);
-      var winV1 = cellV0 + (cellV1 - cellV0) * (0.5 + winHeightFrac / 2);
+    // Skip this floor's window row on the door face, ground floor only.
+    if (hasDoor && f === 0) continue;
 
-      // Four corners of the window quad (screen-space)
-      var wbl = facePoint(winU0, winV0);
-      var wbr = facePoint(winU1, winV0);
-      var wtr = facePoint(winU1, winV1);
-      var wtl = facePoint(winU0, winV1);
-
-      ctx.beginPath();
-      ctx.moveTo(wbl.sx, wbl.sy);
-      ctx.lineTo(wbr.sx, wbr.sy);
-      ctx.lineTo(wtr.sx, wtr.sy);
-      ctx.lineTo(wtl.sx, wtl.sy);
-      ctx.closePath();
-      ctx.fillStyle = winColor;
-      ctx.fill();
+    for (var c = 0; c < cols; c++) {
+      var cellCenterX = marginX + cellW * (c + 0.5);
+      var winX        = Math.floor(cellCenterX - winW / 2);
+      ctx.fillRect(winX, winY, winW, winH);
     }
   }
-}
 
-
-// -----------------------------------------------------------------------------
-// drawGround(ctx, x, y, w, d, fill, stroke)
-//
-// Draws an isometric ground plane (flat rectangle) for city blocks and streets.
-//
-//   ctx    — Canvas 2D context
-//   x, y   — Screen-space center of the rectangle (already translated for pan/zoom)
-//   w      — Width  (world units, controls left-right span)
-//   d      — Depth  (world units, controls front-back span)
-//   fill   — Fill color string (CSS color), or null to skip fill
-//   stroke — Stroke color string (CSS color), or null to skip stroke
-//
-// The ground quad is the bottom face of a 3D box at z=0. The four corners are
-// the standard isometric diamond seen from above.
-// -----------------------------------------------------------------------------
-function drawGround(ctx, x, y, w, d, fill, stroke) {
-  var hw = w / 2;
-  var hd = d / 2;
-
-  // Project the four corners of the rectangular ground tile (z = 0).
-  // This produces the correct isometric parallelogram for a w×d rectangle.
-  var pfl = isoProject(-hw, -hd, 0);  // front-left  (north-west)
-  var pfr = isoProject( hw, -hd, 0);  // front-right (north-east)
-  var pbr = isoProject( hw,  hd, 0);  // back-right  (south-east)
-  var pbl = isoProject(-hw,  hd, 0);  // back-left   (south-west)
-
-  ctx.beginPath();
-  ctx.moveTo(x + pfl.sx, y + pfl.sy);
-  ctx.lineTo(x + pfr.sx, y + pfr.sy);
-  ctx.lineTo(x + pbr.sx, y + pbr.sy);
-  ctx.lineTo(x + pbl.sx, y + pbl.sy);
-  ctx.closePath();
-
-  if (fill) {
-    ctx.fillStyle = fill;
-    ctx.fill();
+  // Door — centered on the ground floor, on the door face.
+  if (hasDoor) {
+    var doorW = Math.floor(width * 0.14);
+    var doorH = Math.floor(pxPerFloor * 0.7);
+    var doorX = Math.floor((width - doorW) / 2);
+    var doorY = height - doorH;
+    ctx.fillStyle = doorColor;
+    ctx.fillRect(doorX, doorY, doorW, doorH);
   }
 
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
+  var tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+
+// -----------------------------------------------------------------------------
+// _buildRoofTexture(opts) -> THREE.CanvasTexture
+//
+// A simple texture for the top face: flat roof color with a faint darker
+// border so it reads as a roof slab rather than a featureless cap.
+// -----------------------------------------------------------------------------
+function _buildRoofTexture(opts) {
+  var canvas = document.createElement('canvas');
+  canvas.width  = 128;
+  canvas.height = 128;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = opts.roofColor;
+  ctx.fillRect(0, 0, 128, 128);
+  // Subtle border
+  ctx.strokeStyle = opts.borderColor;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, 124, 124);
+  var tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+
+// -----------------------------------------------------------------------------
+// createBuildingMesh(building) -> THREE.Mesh
+//
+// Builds a single building mesh from a layout Building object:
+//   { x, y, w, d, h, color, orient, file }
+//
+// Three.js box geometry has 6 faces; we assign a material per face with a
+// CanvasTexture that paints the right pattern for each side. Texture widths
+// are based on the number of window columns per face (so tall, thin buildings
+// get narrow one-window-wide textures and wide buildings get more columns).
+//
+// The mesh is positioned so its base sits on z=0 and its center is at (x, y).
+// `building.file` is attached to `mesh.userData.building` so raycast hits can
+// look the original building object back up.
+// -----------------------------------------------------------------------------
+function createBuildingMesh(building) {
+  var w = building.w;
+  var d = building.d;
+  var h = building.h;
+  var color = building.color || 'hsl(220, 10%, 40%)';
+
+  // Snap height to whole floors so textures line up.
+  var floors = Math.max(1, Math.round(h / FLOOR_HEIGHT));
+  var renderH = floors * FLOOR_HEIGHT;
+
+  // Scene convention: Three.js Y is up. Layout coords (x, y) map to scene
+  // (x, z) with building height along scene-Y. So a BoxGeometry(w, renderH, d)
+  // has its sides running along world-X and world-Z — exactly what we want.
+  //
+  // BoxGeometry material order: [+X, -X, +Y, -Y, +Z, -Z]
+  // Window-column counts scale with each face's horizontal extent:
+  //   ±X faces (east/west walls)   have horizontal extent = d
+  //   ±Z faces (north/south walls) have horizontal extent = w
+  var colsEW = Math.max(1, Math.min(5, Math.floor(d / 8)));
+  var colsNS = Math.max(1, Math.min(5, Math.floor(w / 8)));
+
+  // Palette — opposing faces share a color so the building looks symmetric
+  // as the camera orbits. Front/back faces use a slight absolute lightness
+  // bump; side faces use a MULTIPLICATIVE darkening so they always read as
+  // proportionally darker than the front regardless of the base lightness,
+  // with an absolute floor that keeps them from crushing to pure black on
+  // dim files (old/untouched) and blending into the dark background.
+  var wallFront  = shadeAndShiftHue(color,  -5,  18);           // lighter, warmer
+  var wallSide   = shadeByRatio(color, 0.55, -10, 14);          // ~45% darker, floor 14
+  var slabFront  = shadeAndShiftHue(color, -15,  18);
+  var slabSide   = shadeByRatio(color, 0.40, -10, 10);
+  var winColor   = shadeColor(color,  20);
+  var doorColor  = shadeAndShiftHue(color, -55,  0);
+  var roofColor  = color;
+  var roofBorder = shadeAndShiftHue(color, -15, 0);
+
+  // Door face mapping. Layout orient describes which face actually points at
+  // the adjacent street; scene maps layout-y to scene-z.
+  //   's' → door on layout +y = scene +Z (material index 4)
+  //   'n' → door on layout -y = scene -Z (material index 5)
+  //   'e' → door on layout +x = scene +X (material index 0)
+  //   'w' → door on layout -x = scene -X (material index 1)
+  var orient = building.orient || 's';
+  var doorOnEW = (orient === 'e' || orient === 'w');
+
+  // Assign the lighter "front" palette to the pair of faces that contains
+  // the door; the other pair gets the darker "side" palette.
+  var wallNS = doorOnEW ? wallSide  : wallFront;
+  var wallEW = doorOnEW ? wallFront : wallSide;
+  var slabNS = doorOnEW ? slabSide  : slabFront;
+  var slabEW = doorOnEW ? slabFront : slabSide;
+
+  var geometry = new THREE.BoxGeometry(w, renderH, d);
+
+  // One material per face, in BoxGeometry order: [+X, -X, +Y, -Y, +Z, -Z].
+  function facadeMat(cols, hasDoor, wallColor, slabColor) {
+    var tex = _buildFacadeTexture({
+      floors: floors,
+      cols: cols,
+      wallColor: wallColor,
+      slabColor: slabColor,
+      winColor: winColor,
+      doorColor: doorColor,
+      hasDoor: hasDoor
+    });
+    return new THREE.MeshBasicMaterial({ map: tex });
   }
-}
 
-
-// -----------------------------------------------------------------------------
-// Street rendering
-// -----------------------------------------------------------------------------
-// A street is a flat tile in the city representing a directory. Visually it
-// has two layers: an outer SIDEWALK rectangle (the full footprint) and an
-// inner ASPHALT strip running along its length.
-//
-// Street opts:
-//   x, y        — world-space center of the street
-//   length      — long-axis extent (along orientation)
-//   width       — short-axis extent (perpendicular to orientation)
-//   orientation — 'x' (default) or 'y' for which axis the street runs along
-//   asphaltFrac — fraction of width occupied by asphalt (default 0.6)
-//
-// IMPORTANT: when multiple streets meet at intersections, render them with
-// drawStreets() so all sidewalks paint first and all asphalts second. That
-// way each street's asphalt cuts cleanly through the others' sidewalks at
-// the intersection, leaving a continuous road network with sidewalk only
-// in the four corner pockets.
-// -----------------------------------------------------------------------------
-
-var STREET_COLORS = {
-  asphalt:  '#1a1d28',
-  sidewalk: '#2a3050'
-};
-
-function _streetRects(opts) {
-  var orientation = opts.orientation || 'x';
-  var asphaltFrac = opts.asphaltFrac != null ? opts.asphaltFrac : 0.6;
-  var length = opts.length, width = opts.width;
-  if (orientation === 'x') {
-    return {
-      swW: length, swD: width,
-      asW: length, asD: width * asphaltFrac
-    };
+  function roofMat() {
+    var tex = _buildRoofTexture({ roofColor: roofColor, borderColor: roofBorder });
+    return new THREE.MeshBasicMaterial({ map: tex });
   }
-  return {
-    swW: width,  swD: length,
-    asW: width * asphaltFrac, asD: length
-  };
-}
 
-function drawStreetSidewalk(ctx, opts) {
-  var r = _streetRects(opts);
-  var p = isoProject(opts.x || 0, opts.y || 0, 0);
-  drawGround(ctx, p.sx, p.sy, r.swW, r.swD, STREET_COLORS.sidewalk, null);
-}
+  function bottomMat() {
+    return new THREE.MeshBasicMaterial({ color: new THREE.Color(wallEW) });
+  }
 
-function drawStreetAsphalt(ctx, opts) {
-  var r = _streetRects(opts);
-  var p = isoProject(opts.x || 0, opts.y || 0, 0);
-  drawGround(ctx, p.sx, p.sy, r.asW, r.asD, STREET_COLORS.asphalt, null);
-}
+  var materials = [
+    facadeMat(colsEW, orient === 'e', wallEW, slabEW),   // +X (east)
+    facadeMat(colsEW, orient === 'w', wallEW, slabEW),   // -X (west)
+    roofMat(),                                            // +Y (roof)
+    bottomMat(),                                          // -Y (bottom)
+    facadeMat(colsNS, orient === 's', wallNS, slabNS),   // +Z (south)
+    facadeMat(colsNS, orient === 'n', wallNS, slabNS)    // -Z (north)
+  ];
 
-// Render an entire street network so intersections look clean: sidewalks
-// overlap into a single connected shape, then asphalts form a continuous
-// road network on top.
-function drawStreets(ctx, streets) {
-  for (var i = 0; i < streets.length; i++) drawStreetSidewalk(ctx, streets[i]);
-  for (var j = 0; j < streets.length; j++) drawStreetAsphalt(ctx, streets[j]);
-}
+  var mesh = new THREE.Mesh(geometry, materials);
 
-// Single-street convenience wrapper. For a single isolated street this looks
-// the same as calling the sidewalk + asphalt passes; use drawStreets() if you
-// have any intersections.
-function drawStreet(ctx, opts) {
-  drawStreets(ctx, [opts]);
-}
+  // Position: building center in XY plane, base sits on z=0.
+  // We use Three.js default Y-up internally but position Y to be "up" in the
+  // scene as well — the camera is set up for that. World-space mapping from
+  // layout (x, y, z-up) to scene (x, y-up, z):
+  //     scene.x = layout.x
+  //     scene.y = layout.z (height)
+  //     scene.z = layout.y
+  mesh.position.set(building.x, renderH / 2, building.y);
 
-// -----------------------------------------------------------------------------
-// drawPath(ctx, path) / drawPaths(ctx, paths)
-//
-// A "path" is a thin sidewalk-colored strip on the ground connecting a
-// building's door to the adjacent street. Paths use the sidewalk color so
-// they visually extend the street's sidewalk all the way up to the building.
-//
-// path = { x, y, w, d } — same shape as a ground rectangle
-// -----------------------------------------------------------------------------
-function drawPath(ctx, path) {
-  var p = isoProject(path.x, path.y, 0);
-  drawGround(ctx, p.sx, p.sy, path.w, path.d, STREET_COLORS.sidewalk, null);
-}
-
-function drawPaths(ctx, paths) {
-  for (var i = 0; i < paths.length; i++) drawPath(ctx, paths[i]);
+  mesh.userData.building = building;
+  mesh.userData.type = 'building';
+  return mesh;
 }
 
 
 // -----------------------------------------------------------------------------
-// drawLabel(ctx, x, y, text, color)
+// Ground-plane materials — all the flat pieces (sidewalk, asphalt, paths)
+// sit at the same world Y. `polygonOffset` alone isn't enough to kill
+// z-fighting between coplanar meshes at typical camera distances, so we
+// also disable depth-write and control their stacking via `renderOrder`:
+// the lowest renderOrder draws first, higher orders draw on top cleanly
+// regardless of their actual Y coordinate.
 //
-// Draws a text label at the given screen-space position, suitable for rendering
-// directory names on or near their ground blocks.
-//
-//   ctx   — Canvas 2D context
-//   x, y  — Screen-space position (already translated for pan/zoom)
-//   text  — Label string to render
-//   color — CSS color string for the text
-//
-// The label is drawn with a slight shadow for readability against dark ground.
+// Ground planes still `depthTest` so buildings occlude them correctly.
 // -----------------------------------------------------------------------------
-function drawLabel(ctx, x, y, text, color) {
-  if (!text) return;
+function _flatMat(color, renderOrderLayer) {
+  var mat = new THREE.MeshBasicMaterial({
+    color: color,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -renderOrderLayer,
+    polygonOffsetUnits: -renderOrderLayer
+  });
+  mat.userData.renderOrderLayer = renderOrderLayer;
+  return mat;
+}
 
-  ctx.save();
-  ctx.font = '10px "Inter", "SF Mono", sans-serif';
+
+// -----------------------------------------------------------------------------
+// createStreetMesh(street) -> THREE.Group
+//
+// A street is two stacked flat planes — sidewalk (wider) and asphalt (narrower).
+// The group's userData.street points back to the layout street so raycaster
+// hits can recover the directory this street represents.
+// -----------------------------------------------------------------------------
+function createStreetMesh(street, yBase) {
+  var group = new THREE.Group();
+  var asphaltFrac = 0.6;
+  // End caps: small sidewalk-only terminators at each end so streets don't
+  // trail off into empty space. Kept subtle (~2 units) — larger caps read
+  // as dead-end "rooms" rather than a clean street end.
+  var endCap = Math.min(2, street.width * 0.2);
+  var asphaltLength = Math.max(street.length * 0.2, street.length - 2 * endCap);
+
+  var swW, swD, asW, asD;
+  if (street.orientation === 'x') {
+    swW = street.length;   swD = street.width;
+    asW = asphaltLength;   asD = street.width * asphaltFrac;
+  } else {
+    swW = street.width;            swD = street.length;
+    asW = street.width * asphaltFrac;  asD = asphaltLength;
+  }
+
+  // Sidewalk — the clickable target for street picking. renderOrder=1
+  // means all sidewalks across the city draw first, as a single bottom layer.
+  var sidewalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(swW, swD),
+    _flatMat(STREET_COLOR_SIDEWALK, 1)
+  );
+  sidewalk.rotation.x = -Math.PI / 2;
+  sidewalk.position.set(street.x, yBase, street.y);
+  sidewalk.renderOrder = 1;
+  sidewalk.userData.street = street;
+  sidewalk.userData.type = 'street';
+  group.add(sidewalk);
+
+  // Asphalt — narrower, always draws on top of every sidewalk (renderOrder=3).
+  var asphalt = new THREE.Mesh(
+    new THREE.PlaneGeometry(asW, asD),
+    _flatMat(STREET_COLOR_ASPHALT, 3)
+  );
+  asphalt.rotation.x = -Math.PI / 2;
+  asphalt.position.set(street.x, yBase, street.y);
+  asphalt.renderOrder = 3;
+  group.add(asphalt);
+
+  group.userData.street = street;
+  group.userData.sidewalk = sidewalk;   // exposed so callers can pick on it
+  group.userData.type = 'street';
+  return group;
+}
+
+
+// -----------------------------------------------------------------------------
+// createRootGem(street) -> THREE.Group
+//
+// A floating, slowly spinning octahedron gem hovering over a tiny neon plaza
+// that connects to the root street's origin end. Each of the 8 gem faces
+// gets a different vibrant color (per-vertex colors on a non-indexed
+// octahedron). Render loop drives the rotation and a subtle bob via
+// `userData.gem`.
+// -----------------------------------------------------------------------------
+// 8 gem faces in the GOLD family — amber/honey/yellow tones with varied
+// brightness so the gem has life without leaving its color family.
+var _GEM_FACE_COLORS = [
+  [1.00, 0.84, 0.20],   // classic gold
+  [1.00, 0.72, 0.05],   // amber
+  [1.00, 0.92, 0.40],   // pale gold
+  [0.95, 0.60, 0.00],   // deep gold / saffron
+  [1.00, 0.80, 0.35],   // honey
+  [0.85, 0.55, 0.10],   // bronze-gold
+  [1.00, 0.95, 0.55],   // champagne
+  [1.00, 0.68, 0.20]    // warm amber
+];
+var _GEM_EDGES   = 0xfff4c2;   // warm pale gold edges
+var _PLAZA_BORDER = 0xb8b8c4;  // cool light gray — neutral, doesn't steal the gem's spotlight
+var _PLAZA_CORE   = 0x1a1026;  // deep plum-black core, reads the border cleanly
+
+function createRootGem(street) {
+  var group = new THREE.Group();
+
+  // Size scales with the street so the gem stays proportionate to the city.
+  // Plaza matches the street width EXACTLY so it reads as a continuation of
+  // the road. Gem is a bit smaller than the plaza so it fits within the
+  // bordered core when viewed top-down.
+  var plazaSize = street.width;
+  var radius = Math.min(plazaSize * 0.35, street.width * 0.45);
+  if (radius < 5) radius = 5;
+  var hoverY = radius + street.width * 0.3;
+
+  // Anchor the plaza so its inner edge is flush with the road's origin end,
+  // and float the gem above the plaza's center. This keeps everything
+  // tightly coupled to the start of the road.
+  var gemX, gemZ;
+  if (street.orientation === 'x') {
+    gemX = street.x - street.length / 2 - plazaSize / 2;
+    gemZ = street.y;
+  } else {
+    gemX = street.x;
+    gemZ = street.y - street.length / 2 - plazaSize / 2;
+  }
+
+  // ---- Plaza: two-layer pad (single border) ---------------------------------
+  // Outer: gold border, matches the gem family and stands out against the bg.
+  // Core:  deep plum-black so the gold reads as a clean single frame.
+  var plazaBorder = new THREE.Mesh(
+    new THREE.PlaneGeometry(plazaSize, plazaSize),
+    _flatMat(_PLAZA_BORDER, 1)
+  );
+  plazaBorder.rotation.x = -Math.PI / 2;
+  plazaBorder.position.set(gemX, 0, gemZ);
+  plazaBorder.renderOrder = 1;
+  group.add(plazaBorder);
+
+  var borderWidth = plazaSize * 0.12;
+  var coreSize = plazaSize - borderWidth * 2;
+  var plazaCore = new THREE.Mesh(
+    new THREE.PlaneGeometry(coreSize, coreSize),
+    _flatMat(_PLAZA_CORE, 2)
+  );
+  plazaCore.rotation.x = -Math.PI / 2;
+  plazaCore.position.set(gemX, 0, gemZ);
+  plazaCore.renderOrder = 2;
+  group.add(plazaCore);
+
+  // ---- Gem: per-face colored octahedron -------------------------------------
+  var geo = new THREE.OctahedronGeometry(radius, 0);
+  var colorAttr = new Float32Array(geo.attributes.position.count * 3);
+  for (var f = 0; f < 8; f++) {
+    var fc = _GEM_FACE_COLORS[f];
+    for (var v = 0; v < 3; v++) {
+      var idx = (f * 3 + v) * 3;
+      colorAttr[idx]     = fc[0];
+      colorAttr[idx + 1] = fc[1];
+      colorAttr[idx + 2] = fc[2];
+    }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colorAttr, 3));
+
+  var body = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false
+  }));
+
+  var edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: _GEM_EDGES })
+  );
+
+  var gem = new THREE.Group();
+  gem.add(body);
+  gem.add(edges);
+  gem.position.set(gemX, hoverY, gemZ);
+  gem.userData.baseY = hoverY;
+  gem.userData.type = 'root-gem';
+
+  group.add(gem);
+  group.userData.gem = gem;
+  return group;
+}
+
+
+// -----------------------------------------------------------------------------
+// createPathMesh(path) -> THREE.Mesh
+//
+// Thin sidewalk-colored strip connecting a building's door to the adjacent
+// street. Sits between the sidewalk and asphalt layers via polygonOffset so
+// it doesn't z-fight at intersections with either.
+// -----------------------------------------------------------------------------
+function createPathMesh(path, yBase) {
+  // Paths sit between sidewalks (1) and asphalts (3) so they extend the
+  // sidewalk all the way to the building without overdrawing the asphalt.
+  var mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(path.w, path.d),
+    _flatMat(STREET_COLOR_SIDEWALK, 2)
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(path.x, yBase, path.y);
+  mesh.renderOrder = 2;
+  return mesh;
+}
+
+
+// -----------------------------------------------------------------------------
+// createStreetLabels(street) -> THREE.Group[]
+//
+// Flat text painted on the road, aligned with the street's long axis (like
+// labels on a map). Longer streets repeat the label so you always have one
+// nearby. Each label is a plane lifted a tiny amount above the asphalt so it
+// doesn't z-fight with the road, and it participates in normal depth testing
+// so buildings occlude it correctly — no clipping through them.
+//
+// Each returned Group wraps one label plane and exposes its orientation via
+// userData so the render loop can flip it 180° around scene-Y when the
+// camera orbits to the "upside-down" side.
+// -----------------------------------------------------------------------------
+function _buildLabelTexture(text) {
+  var fontPx = 72;
+  var pad    = 18;
+  var measure = document.createElement('canvas').getContext('2d');
+  measure.font = '700 ' + fontPx + 'px Inter, "SF Mono", sans-serif';
+  var textW = Math.ceil(measure.measureText(text).width);
+  var canvas = document.createElement('canvas');
+  canvas.width  = textW + pad * 2;
+  canvas.height = fontPx + pad * 2;
+  var ctx = canvas.getContext('2d');
+  ctx.font = '700 ' + fontPx + 'px Inter, "SF Mono", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // Shadow for readability
-  ctx.globalAlpha = 0.5;
-  ctx.fillStyle = '#000000';
-  ctx.fillText(text, x + 1, y + 1);
+  // Dark outline + bright fill — readable over asphalt at any zoom.
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(10, 11, 16, 0.9)';
+  ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+  ctx.fillStyle = '#eef1fa';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
 
-  // Main text
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = color || '#ffffff';
-  ctx.fillText(text, x, y);
+  var tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return { texture: tex, aspect: canvas.width / canvas.height };
+}
 
-  ctx.restore();
+function createStreetLabels(street) {
+  var text = street.label || '';
+  if (!text) return [];
+
+  var info = _buildLabelTexture(text);
+
+  // Label sizing scales with street width — narrow alleys get small text,
+  // wide boulevards get large text — so the label always fits its asphalt
+  // and reads at a consistent proportion of the street it's labeling.
+  var worldH = street.width * 0.45;
+  var worldW = worldH * info.aspect;
+
+  // Repetition: one copy per ~120 world units, min 1. Big cities get many
+  // labels along long streets so there's always one near the viewport.
+  var spacing = 120;
+  var count   = Math.max(1, Math.floor(street.length / spacing));
+
+  var labels = [];
+  for (var i = 0; i < count; i++) {
+    var t = (count === 1) ? 0.5 : (i + 0.5) / count;
+    var offset = (t - 0.5) * street.length;
+    var sx = street.x, sz = street.y;
+    if (street.orientation === 'x') sx += offset;
+    else                             sz += offset;
+
+    var mat = new THREE.MeshBasicMaterial({
+      map: info.texture,
+      transparent: true
+    });
+    var plane = new THREE.Mesh(new THREE.PlaneGeometry(worldW, worldH), mat);
+    plane.rotation.x = -Math.PI / 2;   // lay flat
+
+    // Wrap in a group so we can apply a single rotation.y for camera-follow
+    // flipping without fighting the Euler order of the flattened plane.
+    var group = new THREE.Group();
+    group.add(plane);
+    // Lift a tiny amount off the asphalt to avoid coplanar z-fighting, while
+    // staying well below building tops so buildings still occlude the label.
+    group.position.set(sx, 0.5, sz);
+    // Base rotation per orientation. For y-streets the label's reading
+    // direction needs to run along scene-Z, so rotate the group 90°.
+    group.userData.baseRotY = (street.orientation === 'y') ? -Math.PI / 2 : 0;
+    group.rotation.y = group.userData.baseRotY;
+    group.userData.street = street;
+    group.userData.type = 'street-label';
+    labels.push(group);
+  }
+  return labels;
 }
 
 
 // -----------------------------------------------------------------------------
-// setupCanvas(canvas) → ctx
+// buildCityScene(layout) -> { scene, buildingMeshes, streetPickables, bbox }
 //
-// Prepares a canvas element for DPR-aware (retina) rendering.
-//
-// On high-DPI displays, the canvas pixel buffer is scaled up by devicePixelRatio
-// so drawing operations are sharp. The context is pre-scaled so callers can use
-// logical CSS pixel coordinates without worrying about DPR.
-//
-// Returns the 2D rendering context, ready to use.
+// Builds the Three.js scene from a layout and returns the pickable meshes
+// alongside it. The caller wires `buildingMeshes` ∪ `streetPickables` into
+// a raycaster for click selection.
 // -----------------------------------------------------------------------------
-function setupCanvas(canvas) {
-  var dpr  = window.devicePixelRatio || 1;
-  var rect = canvas.getBoundingClientRect();
+function buildCityScene(layout) {
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(GROUND_COLOR);
 
-  // Set the backing store size to physical pixels
-  canvas.width  = rect.width  * dpr;
-  canvas.height = rect.height * dpr;
+  // Streets + their labels
+  var streets = layout.streets || [];
+  var streetPickables = [];
+  var streetLabels = [];
+  var rootGem = null;
+  for (var si = 0; si < streets.length; si++) {
+    var sg = createStreetMesh(streets[si], 0);
+    scene.add(sg);
+    streetPickables.push(sg.userData.sidewalk);
 
-  var ctx = canvas.getContext('2d');
+    var labels = createStreetLabels(streets[si]);
+    for (var li = 0; li < labels.length; li++) {
+      scene.add(labels[li]);
+      streetLabels.push(labels[li]);
+    }
 
-  // Scale all drawing operations so 1 unit = 1 CSS pixel
-  ctx.scale(dpr, dpr);
+    // Root-of-repo landmark at the street's origin end.
+    if (streets[si].isRoot) {
+      var gemGroup = createRootGem(streets[si]);
+      scene.add(gemGroup);
+      rootGem = gemGroup.userData.gem;
+    }
+  }
 
-  return ctx;
+  // Paths
+  var paths = layout.paths || [];
+  for (var pi = 0; pi < paths.length; pi++) {
+    scene.add(createPathMesh(paths[pi], 0));
+  }
+
+  // Buildings
+  var buildingMeshes = [];
+  var buildings = layout.buildings || [];
+  for (var bi = 0; bi < buildings.length; bi++) {
+    var b = buildings[bi];
+    if (b.file && b.file.type === 'directory') continue;
+    var mesh = createBuildingMesh(b);
+    scene.add(mesh);
+    buildingMeshes.push(mesh);
+  }
+
+  // Bounding box of the whole city (in scene coords). Used by the caller to
+  // frame the camera.
+  var bbox = new THREE.Box3().setFromObject(scene);
+  if (bbox.isEmpty()) {
+    bbox.set(new THREE.Vector3(-50, 0, -50), new THREE.Vector3(50, 10, 50));
+  }
+
+  return {
+    scene: scene,
+    buildingMeshes: buildingMeshes,
+    streetPickables: streetPickables,
+    streetLabels: streetLabels,
+    rootGem: rootGem,
+    bbox: bbox
+  };
 }
 
-// CommonJS exports for Vitest (guarded so browser concatenation still works)
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works).
+// In node, THREE isn't available, so we only export the pure helpers that
+// don't touch THREE. Rendering tests now run in a real browser via Playwright.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    isoProject,
     hslToComponents,
     componentsToHsl,
     shadeColor,
-    drawBuilding,
-    drawGround,
-    drawLabel,
-    drawStreet,
-    drawStreets,
-    drawStreetSidewalk,
-    drawStreetAsphalt,
-    drawPath,
-    drawPaths,
-    STREET_COLORS,
-    setupCanvas,
+    shadeAndShiftHue,
+    FLOOR_HEIGHT
   };
 }

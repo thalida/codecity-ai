@@ -24,7 +24,19 @@
   <canvas id="city"></canvas>
   <div id="sidebar"></div>
 
-  <!-- Renderer modules — load order matters -->
+  <!-- Three.js (ESM) — UMD addons were removed in r148, so we use the official
+       import-map approach documented at threejs.org/docs/#manual/en/introduction/Installation -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three":          "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.min.js",
+      "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Renderer modules — classic scripts define globals used by the module
+       bootstrap at the bottom of this file. Load order matters. -->
   <script src="../../renderer/engine.js"></script>
   <script src="../../renderer/colors.js"></script>
   <script src="../../renderer/layout.js"></script>
@@ -307,17 +319,18 @@
       }
     };
 
-    // -------------------------------------------------------------------------
-    // Boot — call startRenderLoop once the DOM is ready.
-    // -------------------------------------------------------------------------
-    window.addEventListener('load', function () {
-      startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
-      // Tree sidebar is also initialized inside startRenderLoop, but we call it
-      // here explicitly in case the function ordering differs.
-      if (typeof showTreeSidebar === 'function') {
-        showTreeSidebar(MANIFEST);
-      }
-    });
+  </script>
+
+  <!-- Boot: load Three.js via ESM, expose it as globals for the classic
+       renderer scripts, then start the render loop. Note: the THREE module
+       namespace object is frozen, so OrbitControls is exposed separately as
+       its own global rather than attached to THREE. -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    window.THREE = THREE;
+    window.OrbitControls = OrbitControls;
+    startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
   </script>
 </body>
 </html>

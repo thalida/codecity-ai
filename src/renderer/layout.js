@@ -3,18 +3,12 @@
 // CodeCity AI — Computes world-space positions for buildings, blocks, and streets.
 //
 // All functions are declared with `function` keyword so they are hoisted and
-// available globally after script concatenation. No imports or dependencies
-// except isoProject from engine.js (used in _computeHitBox).
+// available globally after script concatenation. No dependencies on the
+// rendering engine — layout output is pure data.
 //
 // Interface contract:
-//   Building: { x, y, w, d, h, color, file, hitBox: { x, y, w, h } }
+//   Building: { x, y, w, d, h, color, file, orient }
 //   Block:    { x, y, w, d, label, dir }
-//
-// The layout pipeline:
-//   1. getBuildingDimensions  — derives w/d/h from file metadata
-//   2. layoutBlock            — places buildings inside a single directory block
-//   3. layoutCity             — tiles blocks on a top-level grid with streets
-//   4. sortForRendering       — painter's-algorithm sort for correct overdraw order
 // =============================================================================
 
 
@@ -37,10 +31,12 @@ function getStreetTier(childrenCount, tiers) {
 // -----------------------------------------------------------------------------
 // getStreetWidth(tier) -> number
 //
-// Returns the pixel width of a street for the given tier.
+// Returns the world-space width of a street for the given tier. The smallest
+// tier is sized so even tiny directories have a street that's noticeably
+// wider than the sidewalk border on a larger boulevard.
 // -----------------------------------------------------------------------------
 function getStreetWidth(tier) {
-  var widths = [0, 4, 8, 14, 22, 32];
+  var widths = [0, 10, 16, 24, 36, 52];
   var t = Math.max(1, Math.min(5, Math.round(tier)));
   return widths[t];
 }
@@ -89,56 +85,10 @@ function getBuildingDimensions(file, config) {
 // -----------------------------------------------------------------------------
 // Street-network layout constants
 // -----------------------------------------------------------------------------
-var STREET_WIDTH = 14;   // street width perpendicular to its orientation
-var CHILD_GAP    = 5;    // gap between adjacent children (files or subdirs)
-// END_PAD must be at least STREET_WIDTH/2 + buffer so that a child placed at
-// the start of THIS street doesn't cross over the PARENT street's footprint at
-// the intersection. (A child's near-edge sits at along-street position = END_PAD;
-// parent's far-edge is at STREET_WIDTH/2 from its centerline.)
-var END_PAD      = STREET_WIDTH / 2 + 3;  // 10 units
-var BLDG_OFFSET  = STREET_WIDTH / 2 + 4;  // street centerline → building near-edge
-
-
-// -----------------------------------------------------------------------------
-// _computeHitBox(x, y, w, d, h) -> { x, y, w, h }
-//
-// Projects all 8 corners of a building's bounding box into screen space using
-// isoProject and returns the axis-aligned bounding rectangle for hit testing.
-// -----------------------------------------------------------------------------
-function _computeHitBox(bx, by, w, d, h) {
-  var hw = w / 2;
-  var hd = d / 2;
-
-  // Project the building's world center to isometric screen space
-  var center = isoProject(bx, by, 0);
-
-  var corners = [
-    isoProject(-hw, -hd, 0),
-    isoProject( hw, -hd, 0),
-    isoProject( hw,  hd, 0),
-    isoProject(-hw,  hd, 0),
-    isoProject(-hw, -hd, h),
-    isoProject( hw, -hd, h),
-    isoProject( hw,  hd, h),
-    isoProject(-hw,  hd, h)
-  ];
-
-  var minSx = Infinity, maxSx = -Infinity;
-  var minSy = Infinity, maxSy = -Infinity;
-  for (var i = 0; i < corners.length; i++) {
-    if (corners[i].sx < minSx) minSx = corners[i].sx;
-    if (corners[i].sx > maxSx) maxSx = corners[i].sx;
-    if (corners[i].sy < minSy) minSy = corners[i].sy;
-    if (corners[i].sy > maxSy) maxSy = corners[i].sy;
-  }
-
-  return {
-    x: center.sx + minSx,
-    y: center.sy + minSy,
-    w: maxSx - minSx,
-    h: maxSy - minSy
-  };
-}
+var CHILD_GAP         = 5;   // gap between adjacent children (files or subdirs)
+var BLDG_STREET_GAP   = 4;   // clear space between street's edge and building
+var PARENT_JOIN_PAD   = 3;   // extra clear space at the start/end of a child street
+var ROOT_END_PAD      = 8;   // fallback pad for the root street (has no parent)
 
 
 // -----------------------------------------------------------------------------
@@ -162,16 +112,19 @@ function layoutCity(manifest, config) {
 
   _layoutDir(tree, config, 0, 0, 'x', result);
 
+  // Mark the root-dir street so the renderer can draw a distinct "start of
+  // repo" marker at its origin end.
+  for (var ri = 0; ri < result.streets.length; ri++) {
+    if (result.streets[ri].dir === tree) {
+      result.streets[ri].isRoot = true;
+      break;
+    }
+  }
+
   // Compute paths from each building's door to the adjacent street
   for (var pi = 0; pi < result.buildings.length; pi++) {
     var path = _pathForBuilding(result.buildings[pi]);
     if (path) result.paths.push(path);
-  }
-
-  // Compute screen-space hit boxes for each building
-  for (var i = 0; i < result.buildings.length; i++) {
-    var b = result.buildings[i];
-    b.hitBox = _computeHitBox(b.x, b.y, b.w, b.d, b.h);
   }
 
   return result;
@@ -179,13 +132,29 @@ function layoutCity(manifest, config) {
 
 
 // -----------------------------------------------------------------------------
+// _streetWidthForDir(dir, config) -> number
+//
+// Maps a directory's descendants to a tier and returns the visual width of
+// its street. Larger directories get wider boulevards.
+// -----------------------------------------------------------------------------
+function _streetWidthForDir(dir, config) {
+  var tiers = (config && config.street_tiers) || [3, 8, 15, 30];
+  // Prefer descendants_count (total files+dirs under this node); fall back
+  // to direct children_count for shallow trees / older manifests.
+  var count = (dir && (dir.descendants_count || dir.children_count)) || 0;
+  return getStreetWidth(getStreetTier(count, tiers));
+}
+
+
+// -----------------------------------------------------------------------------
 // _pathForBuilding(building) -> path | null
 //
 // Returns a thin sidewalk-colored strip connecting the building's door (on its
-// front face) to the adjacent street's sidewalk. Returns null for buildings
-// with hidden doors ('n' or 'w' orientation) — no visible door, no visible path.
+// front face) to the adjacent street's sidewalk. The path length is the
+// constant clear gap between street edge and building face (BLDG_STREET_GAP),
+// so paths look consistent regardless of how wide each street is.
 // -----------------------------------------------------------------------------
-var _PATH_LENGTH = BLDG_OFFSET - STREET_WIDTH / 2;  // distance from building face to street edge
+var _PATH_LENGTH = BLDG_STREET_GAP;
 var _PATH_WIDTH  = 3;                                // narrow walkway
 
 function _pathForBuilding(b) {
@@ -255,7 +224,16 @@ function _pathForBuilding(b) {
 // Door faces back toward the street when visible (orient='s' or 'e'); when
 // the file is on the secondary side the door is on a hidden face ('n' or 'w').
 // -----------------------------------------------------------------------------
-function _layoutDir(dir, config, originX, originY, orientation, result) {
+function _layoutDir(dir, config, originX, originY, orientation, result, parentStreetWidth) {
+  // Widths — this street's visual width comes from its descendants count, and
+  // end-padding depends on the PARENT street's width so children don't cross
+  // the parent intersection.
+  var myStreetWidth = _streetWidthForDir(dir, config);
+  var bldgOffset    = myStreetWidth / 2 + BLDG_STREET_GAP;
+  var endPad        = parentStreetWidth
+    ? parentStreetWidth / 2 + PARENT_JOIN_PAD
+    : ROOT_END_PAD;
+
   // ---- Sort children alphabetically (files + dirs intermingled) -----------
   var children = (dir.children || [])
     .filter(function (c) { return c.type === 'file' || c.type === 'directory'; })
@@ -269,12 +247,13 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
   // ---- Pre-compute each subdir's layout in its own local frame ------------
   // We need each subdir's bbox BEFORE positioning it, so siblings can be
   // packed without overlap. Local layout has subdir's street at (0,0) extending
-  // in +subOrient.
+  // in +subOrient. Pass myStreetWidth down so the child's own endPad respects
+  // this (parent) street's footprint.
   var subLayouts = {};
   for (var i = 0; i < children.length; i++) {
     if (children[i].type === 'directory') {
       var localResult = { streets: [], buildings: [] };
-      _layoutDir(children[i], config, 0, 0, subOrient, localResult);
+      _layoutDir(children[i], config, 0, 0, subOrient, localResult, myStreetWidth);
       subLayouts[i] = {
         result: localResult,
         bbox: _computeBbox(localResult)
@@ -282,43 +261,59 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
     }
   }
 
-  // ---- Walk children in alphabetical order, alternating sides -------------
-  var cursor = END_PAD;
+  // ---- Walk children, packing per-side while preserving alphabetical order
+  //
+  //   - cursor[0] / cursor[1]   — end position already occupied on each side.
+  //   - alphaCursor             — furthest end reached by ANY child so far;
+  //                                the next child must start at or after it
+  //                                so intersections + buildings stay in
+  //                                alphabetical order along the road.
+  //   - subdirCount             — used to alternate subdir sides.
+  //   - preferredFileSide       — files default to the side OPPOSITE the
+  //                                most-recent subdir, and subsequent files
+  //                                stay on that side so they pack tight
+  //                                (no forced zig-zagging).
+  var cursor = [endPad, endPad];
+  var alphaCursor = endPad;
+  var subdirCount = 0;
+  var preferredFileSide = 0;
   var fileBuildings = [];
 
   for (var ci = 0; ci < children.length; ci++) {
     var child = children[ci];
-    var sideIdx = ci % 2;   // 0 = primary side (south/west), 1 = secondary (north/east)
 
     if (child.type === 'file') {
       var dim = getBuildingDimensions(child, config);
-      var alongStreet = dim.w;   // long side runs along the street
+      var alongStreet = dim.w;
       var perpStreet  = dim.d;
+      var sideIdx = preferredFileSide;
 
-      cursor += alongStreet / 2;
+      // Anchor position: no earlier than this side's own cursor, and no
+      // earlier than the global alphaCursor (so we stay after prior items).
+      var startPos = Math.max(cursor[sideIdx], alphaCursor);
+      var centerPos = startPos + alongStreet / 2;
 
       var bx, by, bldgW, bldgD, orient;
       if (orientation === 'x') {
-        bx = originX + cursor;
+        bx = originX + centerPos;
         if (sideIdx === 0) {
-          by = originY - BLDG_OFFSET - perpStreet / 2;   // south
+          by = originY - bldgOffset - perpStreet / 2;
           orient = 's';
         } else {
-          by = originY + BLDG_OFFSET + perpStreet / 2;   // north
-          orient = 'n';                                   // door hidden
+          by = originY + bldgOffset + perpStreet / 2;
+          orient = 'n';
         }
-        bldgW = alongStreet;   // world-X
-        bldgD = perpStreet;    // world-Y
+        bldgW = alongStreet;
+        bldgD = perpStreet;
       } else {
-        by = originY + cursor;
+        by = originY + centerPos;
         if (sideIdx === 0) {
-          bx = originX - BLDG_OFFSET - perpStreet / 2;   // west
+          bx = originX - bldgOffset - perpStreet / 2;
           orient = 'e';
         } else {
-          bx = originX + BLDG_OFFSET + perpStreet / 2;   // east
-          orient = 'w';                                   // door hidden
+          bx = originX + bldgOffset + perpStreet / 2;
+          orient = 'w';
         }
-        // Y-street: long side runs along world-Y, short side along world-X
         bldgW = perpStreet;
         bldgD = alongStreet;
       }
@@ -331,13 +326,12 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
         orient: orient
       });
 
-      cursor += alongStreet / 2 + CHILD_GAP;
+      cursor[sideIdx] = startPos + alongStreet + CHILD_GAP;
+      if (cursor[sideIdx] > alphaCursor) alphaCursor = cursor[sideIdx];
     } else {
       // ---- Subdir branch ----
       var sl = subLayouts[ci];
 
-      // Subdir's "width along parent's axis" = its bbox extent perpendicular
-      // to subdir's own street.
       var widthLow, widthHigh;
       if (orientation === 'x') {
         widthLow  = sl.bbox.minX;
@@ -347,22 +341,18 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
         widthHigh = sl.bbox.maxY;
       }
 
-      // Position so subdir's left (low) edge lands at the cursor
-      var subAnchorOffset = cursor + (-widthLow);
+      // Subdirs alternate sides based on how many subdirs we've placed.
+      var subSide = subdirCount % 2;
+      var subStart = Math.max(cursor[subSide], alphaCursor);
+      var subAnchorOffset = subStart + (-widthLow);
 
-      // Determine direction the subdir's street should extend.
-      // Primary side (sideIdx=0) extends in the NEGATIVE perp direction;
-      // secondary (sideIdx=1) extends in the POSITIVE perp direction (default).
-      // We mirror the subdir's local layout by negating the perp axis when
-      // it's on the primary side. (Bbox extents along parent's axis are
-      // unaffected by this perp negation, so positioning logic stays the same.)
-      var negateY = (orientation === 'x' && sideIdx === 0);
-      var negateX = (orientation === 'y' && sideIdx === 0);
+      var negateY = (orientation === 'x' && subSide === 0);
+      var negateX = (orientation === 'y' && subSide === 0);
 
       var subAnchorX, subAnchorY;
       if (orientation === 'x') {
         subAnchorX = originX + subAnchorOffset;
-        subAnchorY = originY;   // overlap parent's centerline
+        subAnchorY = originY;
       } else {
         subAnchorX = originX;
         subAnchorY = originY + subAnchorOffset;
@@ -388,18 +378,28 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
           w: b.w, d: b.d, h: b.h,
           file: b.file,
           color: b.color,
-          orient: b.orient
+          orient: _mirrorOrient(b.orient, negateX, negateY)
         });
       }
 
-      cursor += (widthHigh - widthLow) + CHILD_GAP;
+      var subEnd = subStart + (widthHigh - widthLow) + CHILD_GAP;
+      cursor[subSide] = subEnd;
+      if (subEnd > alphaCursor) alphaCursor = subEnd;
+
+      // Files that come after a subdir flow onto the OPPOSITE side so they
+      // don't get stuck sharing space with the subdir's perpendicular street.
+      preferredFileSide = 1 - subSide;
+      subdirCount++;
     }
   }
-  if (children.length > 0) cursor -= CHILD_GAP;
-  cursor += END_PAD;
+
+  // Trim the trailing CHILD_GAP added by the last child, then pad the end.
+  var maxCursor = Math.max(cursor[0], cursor[1]);
+  if (maxCursor > endPad) maxCursor -= CHILD_GAP;
+  maxCursor += endPad;
 
   // ---- Compute street length and add street ------------------------------
-  var streetLength = Math.max(cursor, END_PAD * 2);
+  var streetLength = Math.max(maxCursor, endPad * 2);
 
   var streetCenterX = originX;
   var streetCenterY = originY;
@@ -413,7 +413,7 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
     x: streetCenterX,
     y: streetCenterY,
     length: streetLength,
-    width: STREET_WIDTH,
+    width: myStreetWidth,
     orientation: orientation,
     label: dir.name || '',
     dir: dir
@@ -422,6 +422,27 @@ function _layoutDir(dir, config, originX, originY, orientation, result) {
   for (var bi2 = 0; bi2 < fileBuildings.length; bi2++) {
     result.buildings.push(fileBuildings[bi2]);
   }
+}
+
+
+// -----------------------------------------------------------------------------
+// _mirrorOrient(orient, negateX, negateY) -> orient
+//
+// When a subtree's positions are mirrored by the parent's negateX / negateY
+// flags, each building's door-facing orient has to flip to match. Otherwise
+// the building ends up on the opposite side of its own street with its door
+// pointing away.
+// -----------------------------------------------------------------------------
+function _mirrorOrient(orient, negateX, negateY) {
+  if (negateX) {
+    if (orient === 'e') orient = 'w';
+    else if (orient === 'w') orient = 'e';
+  }
+  if (negateY) {
+    if (orient === 's') orient = 'n';
+    else if (orient === 'n') orient = 's';
+  }
+  return orient;
 }
 
 

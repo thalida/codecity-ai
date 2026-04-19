@@ -1,191 +1,41 @@
 // =============================================================================
-// interactions.js — Pan, Zoom, Click, and Hover Interactions
-// CodeCity AI — Handles all user input for the isometric city canvas.
-//
-// All functions are declared with `function` keyword so they are hoisted and
-// available globally after script concatenation.
+// interactions.js — Three.js render loop + orbit/pan/zoom + raycast picking
+// CodeCity AI
 //
 // Depends on (loaded before this file in the assembled HTML):
-//   engine.js  — setupCanvas(), drawBuilding(), drawGround(), drawLabel()
-//   colors.js  — getBuildingColor(), getDateRanges()
-//   layout.js  — layoutCity(), sortForRendering()
-//   sidebar.js — showFileSidebar(), showDirSidebar(), closeSidebar()
-//
-// Interface contract property names:
-//   Building: { x, y, w, d, h, color, file, hitBox: { x, y, w, h } }
-//   Block:    { x, y, w, d, label, dir }
+//   THREE             — Three.js global, from CDN
+//   OrbitControls     — Three.js addon, exposed as a global by the module shim
+//   engine.js         — buildCityScene()
+//   colors.js         — getBuildingColor(), getDateRanges()
+//   layout.js         — layoutCity()
+//   sidebar.js        — showFileSidebar(), showDirSidebar(), closeSidebar()
+//   tree.js           — showTreeSidebar()
 // =============================================================================
 
-
-// -----------------------------------------------------------------------------
-// hitTest(screenX, screenY, buildings, zoomLevel, panX, panY,
-//         canvasWidth, canvasHeight)
-//
-// Transforms a screen-space click/hover coordinate back into the world space
-// used by building hitBoxes, then tests against each building's hitBox.
-//
-// hitBox format (from layout.js):
-//   { x, y, w, h }  — in screen-space BEFORE zoom/pan are applied
-//
-// Returns the matching building object, or null if no hit.
-// -----------------------------------------------------------------------------
-function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
-  var worldX = (screenX - canvasWidth  / 2 - panX) / zoomLevel;
-  var worldY = (screenY - canvasHeight / 2 - panY) / zoomLevel;
-
-  // Iterate in reverse paint order so topmost (last-drawn) building wins
-  for (var i = buildings.length - 1; i >= 0; i--) {
-    var b = buildings[i];
-    if (!b.hitBox) continue;
-
-    var hb = b.hitBox;
-    if (worldX >= hb.x && worldX <= hb.x + hb.w &&
-        worldY >= hb.y && worldY <= hb.y + hb.h) {
-      return b;
-    }
-  }
-
-  return null;
-}
-
-
-// -----------------------------------------------------------------------------
-// hitTestBlock(screenX, screenY, blocks, zoomLevel, panX, panY,
-//              canvasWidth, canvasHeight)
-//
-// Tests whether a screen-space click falls within any block's ground plane.
-// Projects the 4 corners of each block and checks if the point is inside
-// the resulting isometric diamond using cross-product winding.
-//
-// Returns the matching block object, or null if no hit.
-// -----------------------------------------------------------------------------
-function hitTestBlock(screenX, screenY, blocks, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
-  var worldX = (screenX - canvasWidth  / 2 - panX) / zoomLevel;
-  var worldY = (screenY - canvasHeight / 2 - panY) / zoomLevel;
-
-  for (var i = blocks.length - 1; i >= 0; i--) {
-    var block = blocks[i];
-    var hw = block.w / 2;
-    var hd = block.d / 2;
-
-    // Project the 4 corners of the block ground plane
-    var bx = block.x;
-    var by = block.y;
-    var sp = isoProject(bx, by, 0);
-    var pfl = isoProject(bx - hw, by - hd, 0);
-    var pfr = isoProject(bx + hw, by - hd, 0);
-    var pbr = isoProject(bx + hw, by + hd, 0);
-    var pbl = isoProject(bx - hw, by + hd, 0);
-
-    // Point-in-quad test using cross product signs
-    if (_pointInQuad(worldX, worldY, pfl, pfr, pbr, pbl)) {
-      return block;
-    }
-  }
-
-  return null;
-}
-
-
-// -----------------------------------------------------------------------------
-// _pointInQuad(px, py, a, b, c, d) -> boolean
-//
-// Tests if point (px, py) is inside the quadrilateral defined by corners
-// a, b, c, d (in order). Each corner has { sx, sy } properties.
-// Uses cross-product winding test.
-// -----------------------------------------------------------------------------
-function _pointInQuad(px, py, a, b, c, d) {
-  var corners = [a, b, c, d];
-  var positive = 0;
-  var negative = 0;
-
-  for (var i = 0; i < 4; i++) {
-    var c1 = corners[i];
-    var c2 = corners[(i + 1) % 4];
-    var cross = (c2.sx - c1.sx) * (py - c1.sy) - (c2.sy - c1.sy) * (px - c1.sx);
-    if (cross > 0) positive++;
-    else if (cross < 0) negative++;
-  }
-
-  return positive === 0 || negative === 0;
-}
-
-
-// -----------------------------------------------------------------------------
-// handleClick(screenX, screenY, buildings, zoomLevel, panX, panY,
-//             canvasWidth, canvasHeight)
-//
-// Performs a hit test against all buildings.
-//   Hit on a file building   -> showFileSidebar(building.file)
-//   Hit on a dir building    -> showDirSidebar(building.file)
-//   Miss (empty space click) -> closeSidebar()
-// -----------------------------------------------------------------------------
-function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight, blocks) {
-  var hit = hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight);
-
-  if (hit) {
-    if (hit.file && hit.file.type === 'directory') {
-      showDirSidebar(hit.file);
-    } else if (hit.file) {
-      showFileSidebar(hit.file);
-    }
-  } else if (blocks) {
-    // Check if click falls on a block's ground plane (Issue 6: clickable folders)
-    var blockHit = hitTestBlock(screenX, screenY, blocks, zoomLevel, panX, panY, canvasWidth, canvasHeight);
-    if (blockHit && blockHit.dir) {
-      showDirSidebar(blockHit.dir);
-    } else {
-      closeSidebar();
-    }
-  } else {
-    closeSidebar();
-  }
-}
-
-
-// -----------------------------------------------------------------------------
-// updateCursor(canvas, screenX, screenY, buildings, zoomLevel, panX, panY,
-//              isPanning, canvasWidth, canvasHeight)
-//
-// Updates the canvas CSS cursor based on current interaction state.
-// -----------------------------------------------------------------------------
-function updateCursor(canvas, screenX, screenY, buildings, zoomLevel, panX, panY, isPanning, canvasWidth, canvasHeight) {
-  if (isPanning) {
-    canvas.style.cursor = 'grabbing';
-    return;
-  }
-
-  var hit = hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight);
-  canvas.style.cursor = hit ? 'pointer' : 'grab';
-}
+/* global THREE, OrbitControls,
+          buildCityScene,
+          getBuildingColor, getDateRanges,
+          layoutCity,
+          showFileSidebar, showDirSidebar, closeSidebar,
+          showTreeSidebar */
 
 
 // -----------------------------------------------------------------------------
 // startRenderLoop(canvas, manifest, config)
 //
-// Main entry point. Ties together layout, colors, and rendering with the full
-// interaction layer (pan, zoom, click, hover, keyboard).
-//
-// Call once after the DOM is ready:
-//   startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
+// Main entry point. Builds the scene from the manifest + config, wires up
+// OrbitControls (orbit = left drag, pan = right drag or shift+drag, zoom =
+// wheel), hooks up raycaster-based click picking, and kicks off the render
+// loop.
 // -----------------------------------------------------------------------------
 function startRenderLoop(canvas, manifest, config) {
-  // -- 1. Canvas setup ---------------------------------------------------------
-  var ctx = setupCanvas(canvas);
-
-  var W = canvas.offsetWidth;
-  var H = canvas.offsetHeight;
-
-  // -- 2. Layout ---------------------------------------------------------------
-  var layout = layoutCity(manifest.tree, config);
-  var buildings = sortForRendering(layout.buildings);
-
-  // -- 3. Colors ---------------------------------------------------------------
+  // -- 1. Layout + colors ------------------------------------------------------
+  var layout    = layoutCity(manifest.tree, config);
   var dateRanges = getDateRanges(manifest.tree);
   var palette    = config.palette || {};
 
-  for (var i = 0; i < buildings.length; i++) {
-    var b = buildings[i];
+  for (var i = 0; i < layout.buildings.length; i++) {
+    var b = layout.buildings[i];
     if (b.file && b.file.type === 'file') {
       b.color = getBuildingColor(b.file, palette, dateRanges, config);
     } else {
@@ -193,174 +43,218 @@ function startRenderLoop(canvas, manifest, config) {
     }
   }
 
-  // -- 4. Interaction state ----------------------------------------------------
-  var panX      = 0;
-  var panY      = 0;
-  var zoomLevel = 1;
+  // -- 2. Scene ----------------------------------------------------------------
+  var built = buildCityScene(layout);
+  var scene = built.scene;
+  var buildingMeshes  = built.buildingMeshes;
+  var streetPickables = built.streetPickables;
+  var streetLabels    = built.streetLabels;
+  var rootGem         = built.rootGem;
+  var pickables = buildingMeshes.concat(streetPickables);
+  var bbox = built.bbox;
 
-  var isPanning   = false;
-  var dragStartX  = 0;
-  var dragStartY  = 0;
-  var panStartX   = 0;
-  var panStartY   = 0;
-  var didDrag     = false;
+  // -- 3. Renderer -------------------------------------------------------------
+  var renderer = new THREE.WebGLRenderer({
+    canvas: canvas,
+    antialias: true,
+    alpha: false
+  });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  _resizeRendererToCanvas(renderer, canvas);
 
-  var DRAG_THRESHOLD = 4;
-  var MIN_ZOOM = 0.3;
-  var MAX_ZOOM = 5.0;
+  // -- 4. Camera ---------------------------------------------------------------
+  var W = canvas.clientWidth;
+  var H = canvas.clientHeight;
+  var camera = new THREE.PerspectiveCamera(45, W / Math.max(1, H), 1, 20000);
 
-  // -- 5. Render function ------------------------------------------------------
-  function renderCity() {
-    W = canvas.offsetWidth;
-    H = canvas.offsetHeight;
+  // Isometric framing from the -X/+Y/+Z octant. The root park sits at -X
+  // relative to center, so positioning the camera on that same X-axis side
+  // pulls the park toward the bottom of the view (closer to camera = lower
+  // on screen) while keeping it on the LEFT (camera's right vector points
+  // toward +X/+Z, so -X is the left half of the frame).
+  var center = new THREE.Vector3();
+  bbox.getCenter(center);
+  var size = new THREE.Vector3();
+  bbox.getSize(size);
+  var radius = Math.max(size.x, size.z, size.y) * 0.5 + 10;
+  var dist = radius / Math.sin((camera.fov * Math.PI / 180) / 2) * 1.4;
+  var dir = new THREE.Vector3(-1, 1, 1).normalize();
+  camera.position.copy(center).add(dir.multiplyScalar(dist));
+  camera.lookAt(center);
 
-    ctx.clearRect(0, 0, W, H);
-    ctx.save();
+  // -- 5. Controls -------------------------------------------------------------
+  // OrbitControls is a global assigned by the module bootstrap (ES module
+  // namespaces are frozen, so we can't stash it on THREE itself).
+  var controls = new OrbitControls(camera, canvas);
+  controls.target.copy(center);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.screenSpacePanning = false;   // pan across ground plane, not screen plane
+  controls.maxPolarAngle = Math.PI * 0.49;  // prevent going below the ground
+  controls.minDistance = 30;
+  controls.maxDistance = dist * 4;
+  // Left = orbit, middle = dolly, right = pan. Matches common 3D-viewer UX.
+  controls.mouseButtons = {
+    LEFT:   THREE.MOUSE.ROTATE,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT:  THREE.MOUSE.PAN
+  };
 
-    // Apply viewport transform: center -> pan -> zoom
-    ctx.translate(W / 2 + panX, H / 2 + panY);
-    ctx.scale(zoomLevel, zoomLevel);
+  // -- 6. Raycaster picking ----------------------------------------------------
+  var raycaster = new THREE.Raycaster();
+  var pointer   = new THREE.Vector2();
 
-    // ---- Streets (sidewalks first, then asphalts so intersections merge) ----
-    drawStreets(ctx, layout.streets || []);
+  // We distinguish click vs. drag by tracking pointerdown → pointerup with a
+  // small movement threshold; OrbitControls swallows the events internally
+  // but pointer events still fire on the canvas.
+  var downX = 0, downY = 0, downTime = 0;
+  var CLICK_MOVE_THRESHOLD_SQ = 5 * 5;   // px²
+  var CLICK_TIME_THRESHOLD    = 400;     // ms
 
-    // ---- Paths (sidewalk-colored strips from each building to its street) --
-    drawPaths(ctx, layout.paths || []);
+  canvas.addEventListener('pointerdown', function (e) {
+    downX = e.clientX;
+    downY = e.clientY;
+    downTime = Date.now();
+  });
 
-    // ---- Buildings (sorted back-to-front, with per-building orientation) ----
-    for (var bi = 0; bi < buildings.length; bi++) {
-      var bld = buildings[bi];
-      var bp = isoProject(bld.x, bld.y, 0);
-      drawBuilding(ctx, bp.sx, bp.sy, bld.w, bld.d, bld.h, bld.color, bld.orient);
+  canvas.addEventListener('pointerup', function (e) {
+    if (e.button !== 0) return;   // only left click selects
+    var dx = e.clientX - downX;
+    var dy = e.clientY - downY;
+    var dtime = Date.now() - downTime;
+    if (dx * dx + dy * dy > CLICK_MOVE_THRESHOLD_SQ) return;
+    if (dtime > CLICK_TIME_THRESHOLD) return;
+    _handlePick(e.clientX, e.clientY);
+  });
+
+  function _handlePick(clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    pointer.x = ((clientX - rect.left) / rect.width)  * 2 - 1;
+    pointer.y = -((clientY - rect.top)  / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(pointer, camera);
+    var hits = raycaster.intersectObjects(pickables, false);
+
+    if (hits.length > 0) {
+      var hit = hits[0].object.userData;
+      if (hit.building && hit.building.file) {
+        if (hit.building.file.type === 'directory') showDirSidebar(hit.building.file);
+        else showFileSidebar(hit.building.file);
+      } else if (hit.street && hit.street.dir) {
+        showDirSidebar(hit.street.dir);
+      } else {
+        closeSidebar();
+      }
+    } else {
+      closeSidebar();
     }
-
-    ctx.restore();
   }
 
-  // Initial render
-  renderCity();
+  // Hover cursor — pointer when over a pickable (building or street sidewalk).
+  canvas.addEventListener('pointermove', function (e) {
+    var rect = canvas.getBoundingClientRect();
+    pointer.x = ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+    pointer.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    var hits = raycaster.intersectObjects(pickables, false);
+    canvas.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+  });
 
-  // Populate the left tree sidebar if available
+  // -- 7. Resize ---------------------------------------------------------------
+  function onResize() {
+    _resizeRendererToCanvas(renderer, canvas);
+    var cw = canvas.clientWidth;
+    var ch = canvas.clientHeight;
+    camera.aspect = cw / Math.max(1, ch);
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+
+  // -- 8. Keyboard: Escape closes sidebar -------------------------------------
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeSidebar();
+  });
+
+  // -- 9. Tree sidebar --------------------------------------------------------
   if (typeof showTreeSidebar === 'function') {
     showTreeSidebar(manifest);
   }
 
-  // -- 6. Event listeners ------------------------------------------------------
-
-  // ---- Mouse down: start potential pan or click ----------------------------
-  canvas.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;
-    isPanning  = true;
-    didDrag    = false;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    panStartX  = panX;
-    panStartY  = panY;
-    canvas.style.cursor = 'grabbing';
-  });
-
-  // ---- Mouse move: pan and hover cursor ------------------------------------
-  canvas.addEventListener('mousemove', function (e) {
-    var rect = canvas.getBoundingClientRect();
-    var mx = e.clientX - rect.left;
-    var my = e.clientY - rect.top;
-
-    if (isPanning) {
-      var dx = e.clientX - dragStartX;
-      var dy = e.clientY - dragStartY;
-
-      if (!didDrag && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
-        didDrag = true;
-      }
-
-      if (didDrag) {
-        panX = panStartX + dx;
-        panY = panStartY + dy;
-        renderCity();
-      }
-
-      canvas.style.cursor = 'grabbing';
-    } else {
-      updateCursor(canvas, mx, my, buildings, zoomLevel, panX, panY, false, W, H);
+  // -- 10. Render loop --------------------------------------------------------
+  var startTime = performance.now();
+  function animate() {
+    controls.update();
+    _orientLabelsForCamera(streetLabels, camera);
+    if (rootGem) {
+      var t = (performance.now() - startTime) / 1000;   // seconds
+      rootGem.rotation.y = t * 0.6;                      // slow spin
+      rootGem.position.y = rootGem.userData.baseY + Math.sin(t * 1.4) * 1.5;
     }
-  });
-
-  // ---- Mouse up: end pan / fire click if not dragged ----------------------
-  canvas.addEventListener('mouseup', function (e) {
-    if (e.button !== 0) return;
-
-    if (!didDrag) {
-      var rect = canvas.getBoundingClientRect();
-      var mx   = e.clientX - rect.left;
-      var my   = e.clientY - rect.top;
-      handleClick(mx, my, buildings, zoomLevel, panX, panY, W, H, layout.blocks);
-    }
-
-    isPanning = false;
-    didDrag   = false;
-
-    var rect2 = canvas.getBoundingClientRect();
-    var mx2 = e.clientX - rect2.left;
-    var my2 = e.clientY - rect2.top;
-    updateCursor(canvas, mx2, my2, buildings, zoomLevel, panX, panY, false, W, H);
-  });
-
-  // ---- Mouse leave: release pan if cursor leaves canvas -------------------
-  canvas.addEventListener('mouseleave', function () {
-    isPanning = false;
-    didDrag   = false;
-    canvas.style.cursor = 'grab';
-  });
-
-  // ---- Wheel: zoom centered on cursor position ----------------------------
-  canvas.addEventListener('wheel', function (e) {
-    e.preventDefault();
-
-    var rect = canvas.getBoundingClientRect();
-    var mx   = e.clientX - rect.left;
-    var my   = e.clientY - rect.top;
-
-    var delta = e.deltaY;
-    if (e.deltaMode === 1) delta *= 24;
-    if (e.deltaMode === 2) delta *= 400;
-
-    var zoomFactor = Math.pow(0.999, delta);
-    var newZoom    = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel * zoomFactor));
-
-    if (newZoom === zoomLevel) return;
-
-    var worldX = (mx - W / 2 - panX) / zoomLevel;
-    var worldY = (my - H / 2 - panY) / zoomLevel;
-
-    panX = mx - W / 2 - worldX * newZoom;
-    panY = my - H / 2 - worldY * newZoom;
-
-    zoomLevel = newZoom;
-    renderCity();
-  }, { passive: false });
-
-  // ---- Keyboard: Escape closes sidebar ------------------------------------
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      closeSidebar();
-    }
-  });
-
-  // ---- Resize: re-setup canvas and re-render ------------------------------
-  window.addEventListener('resize', function () {
-    ctx = setupCanvas(canvas);
-    renderCity();
-  });
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+  animate();
 }
 
-// CommonJS exports for Vitest (guarded so browser concatenation still works)
+
+// -----------------------------------------------------------------------------
+// _orientLabelsForCamera — keep flat street labels readable at any orbit.
+//
+// The flip decision has to come from the camera's ORIENTATION, not its
+// position. At top-down the camera can sit over the center of the scene yet
+// still be rotated 180° around Y; a position-based check flips the wrong way
+// in that case. Reading the camera's world-right vector directly handles
+// every orbit angle consistently.
+//
+// x-orient label: text runs along scene-X. Flip if the camera's right points
+// in -X (the camera is mirrored relative to the text).
+// y-orient label: text runs along scene-Z (after the baseRotY = -π/2 turn).
+// Flip if the camera's right points in +Z.
+// -----------------------------------------------------------------------------
+var _labelRight = null;
+
+function _orientLabelsForCamera(labels, camera) {
+  // Lazy-init: the classic scripts load before the module bootstrap has set
+  // window.THREE, so we can't construct a Vector3 at module top level.
+  if (_labelRight === null) _labelRight = new THREE.Vector3();
+
+  _labelRight.setFromMatrixColumn(camera.matrixWorld, 0);
+  var rightX = _labelRight.x;
+  var rightZ = _labelRight.z;
+
+  for (var i = 0; i < labels.length; i++) {
+    var lbl = labels[i];
+    var street = lbl.userData.street;
+    var base = lbl.userData.baseRotY || 0;
+    var flip;
+    if (street.orientation === 'x') {
+      // x-street baseline runs along +X → flip when camera right points -X.
+      flip = (rightX < 0) ? Math.PI : 0;
+    } else {
+      // y-street baseline runs along +Z (after the -π/2 baseRotY) → flip
+      // when camera right points -Z.
+      flip = (rightZ < 0) ? Math.PI : 0;
+    }
+    lbl.rotation.y = base + flip;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// _resizeRendererToCanvas — sync the WebGL backing store to the canvas CSS size
+// -----------------------------------------------------------------------------
+function _resizeRendererToCanvas(renderer, canvas) {
+  var cw = canvas.clientWidth;
+  var ch = canvas.clientHeight;
+  renderer.setSize(cw, ch, false);
+}
+
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works).
+// The rendering layer is now WebGL-only and not unit-tested in Node; e2e
+// coverage lives in src/tests/e2e/city.spec.js.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    hitTest,
-    hitTestBlock,
-    _pointInQuad,
-    handleClick,
-    updateCursor,
-    startRenderLoop,
+    startRenderLoop
   };
 }

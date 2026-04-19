@@ -3,42 +3,28 @@
 This document defines the data shapes passed between renderer modules.
 All modules MUST use these exact property names. Tests verify compliance.
 
-## Building (output of layoutCity, consumed by renderCity in interactions.js)
+## Building (output of layoutCity, consumed by engine.js)
 
-```
+```text
 {
   x: number,        // world-space X position (center of building base)
   y: number,        // world-space Y position (center of building base)
-  w: number,        // building width (world units)
-  d: number,        // building depth (world units)
-  h: number,        // building height (world units)
+  w: number,        // building width  (world units, along world-X)
+  d: number,        // building depth  (world units, along world-Y)
+  h: number,        // building height (world units, along world-Z)
   color: string,    // HSL color string, e.g. "hsl(215, 80%, 50%)"
-  file: object,     // reference to manifest file/dir node
-  hitBox: {         // axis-aligned bounding box for click detection
-    x: number,      // top-left X in world space
-    y: number,      // top-left Y in world space
-    w: number,      // box width
-    h: number       // box height
-  }
+  orient: string,   // 's' | 'e' | 'n' | 'w' — which face has the door
+  file: object      // reference to manifest file node
 }
 ```
 
-## Block (output of layoutCity, consumed by renderCity)
-
-```
-{
-  x: number,        // world-space X position (center of block)
-  y: number,        // world-space Y position (center of block)
-  w: number,        // block width (world units)
-  d: number,        // block depth (world units)
-  label: string,    // directory name to render as street label
-  dir: object       // reference to manifest directory node
-}
-```
+Note: layout coords are `(x east-west, y north-south)` with z up. The
+Three.js scene maps `(x, y, z-up)` → `(x, z, y-up)` so the camera's Y axis
+points up, while the underlying layout math stays in its natural frame.
 
 ## Manifest File Node (from scanner, consumed by colors.js and sidebar.js)
 
-```
+```text
 {
   name: string,
   type: "file",
@@ -61,7 +47,7 @@ All modules MUST use these exact property names. Tests verify compliance.
 
 ## Manifest Directory Node
 
-```
+```text
 {
   name: string,
   type: "directory",
@@ -80,14 +66,16 @@ All modules MUST use these exact property names. Tests verify compliance.
 
 ## Function Signatures
 
-### engine.js
-- `isoProject(x, y, z)` → `{ sx, sy }`
-- `drawBuilding(ctx, x, y, w, d, h, hslColor)` — draws at world position
-- `drawGround(ctx, x, y, w, d, fill, stroke)` — draws ground plane
-- `drawLabel(ctx, x, y, text, color)` — draws text label at world position
-- `setupCanvas(canvas)` → `ctx`
+### engine.js (Three.js scene builders)
+
+- `createBuildingMesh(building)` → `THREE.Mesh`
+- `createStreetMesh(street, yBase)` → `THREE.Group`
+- `createPathMesh(path, yBase)` → `THREE.Mesh`
+- `buildCityScene(layout)` → `{ scene, buildingMeshes, bbox }`
+- `shadeColor(hslString, amount)` / `shadeAndShiftHue(hslString, dL, dH)` — HSL helpers
 
 ### colors.js
+
 - `getHue(extension, palette)` → number
 - `getSaturation(createdDate, minDate, maxDate, config)` → number
 - `getLightness(modifiedDate, minDate, maxDate, config)` → number
@@ -95,16 +83,21 @@ All modules MUST use these exact property names. Tests verify compliance.
 - `getBuildingColor(fileNode, palette, dateRanges, config)` → HSL string
 
 ### layout.js
+
 - `getStreetTier(childrenCount, tiers)` → number (1-5)
 - `getStreetWidth(tier)` → number
 - `getBuildingDimensions(fileNode, config)` → `{ w, d, h }`
-- `layoutCity(manifestTree, config)` → `{ blocks: Block[], buildings: Building[] }`
+- `layoutCity(manifestTree, config)` → `{ streets, buildings, paths, blocks }`
 - `sortForRendering(buildings)` → Building[]
 
 ### sidebar.js
+
 - `showFileSidebar(fileNode)` — populates and shows sidebar
 - `showDirSidebar(dirNode)` — populates and shows sidebar
 - `closeSidebar()` — hides sidebar
 
 ### interactions.js
-- `startRenderLoop(canvas, manifest, config)` — main entry point
+
+- `startRenderLoop(canvas, manifest, config)` — main entry point. Builds the
+  scene, attaches OrbitControls, raycaster click-picking, and kicks off the
+  render loop. Expects `window.THREE` and `THREE.OrbitControls` to be present.

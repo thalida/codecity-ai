@@ -121,8 +121,22 @@ Use this exact structure:
   </style>
 </head>
 <body>
+  <div id="tree-sidebar"></div>
   <canvas id="city"></canvas>
   <div id="sidebar"></div>
+
+  <!-- Three.js loaded via ESM + import map (required: UMD addons were removed
+       in r148; this is the official three.js install pattern). The file
+       relies on a network connection to jsdelivr for Three.js. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three":         "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.min.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+    }
+  }
+  </script>
+
   <script>
     const MANIFEST = {scanner JSON output};
     const CONFIG = {merged defaults.json + user overrides as a JS object literal};
@@ -130,10 +144,19 @@ Use this exact structure:
     {full contents of colors.js}
     {full contents of layout.js}
     {full contents of sidebar.js}
+    {full contents of tree.js}
     {full contents of interactions.js}
-    window.addEventListener('load', function() {
-      startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
-    });
+  </script>
+
+  <!-- Boot: bring Three.js into the global scope, then start the scene.
+       OrbitControls is exposed as its own global — the THREE module namespace
+       is frozen and cannot be extended. -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    window.THREE = THREE;
+    window.OrbitControls = OrbitControls;
+    startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
   </script>
 </body>
 </html>
@@ -145,8 +168,9 @@ Use this exact structure:
 - Replace `{full contents of styles.css}` with the raw text of `styles.css`.
 - Replace `{scanner JSON output}` with the raw JSON captured from Phase 2. It must be valid JSON assigned to a `const`, so ensure the JSON is syntactically valid as a JS value (standard JSON is valid here).
 - Replace `{merged defaults.json + user overrides as a JS object literal}` with a JS object literal derived from `defaults.json` merged with any user overrides. This is a JS assignment, not a JSON string — write it as a plain object literal.
-- Concatenate the five JS files in the order shown: `engine.js`, `colors.js`, `layout.js`, `sidebar.js`, `interactions.js`. Place each file's full contents as-is, separated by a blank line.
-- The `startRenderLoop` call at the end wires everything together. This function is defined in `interactions.js`.
+- Concatenate the six JS files in the order shown: `engine.js`, `colors.js`, `layout.js`, `sidebar.js`, `tree.js`, `interactions.js`. Place each file's full contents as-is, separated by a blank line.
+- The `startRenderLoop` call inside the final `<script type="module">` wires everything together. This function is defined in `interactions.js` and consumes `window.THREE` that the module block sets up.
+- The generated HTML **requires a network connection** on first open: Three.js is loaded from jsdelivr rather than inlined (keeps the output file small). It does not require a server — `file://` is fine.
 
 ---
 

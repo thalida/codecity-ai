@@ -1,12 +1,6 @@
 // layout.test.js — Unit tests for src/renderer/layout.js
 import { describe, it, expect } from 'vitest';
 
-// layout.js depends on engine.js for isoProject (used in _computeHitBox).
-// Since these are vanilla JS files designed for concatenation, the dependency
-// expects isoProject as a global function. We must attach it to globalThis.
-const engine = require('../../renderer/engine.js');
-globalThis.isoProject = engine.isoProject;
-
 const {
   getStreetTier,
   getStreetWidth,
@@ -69,13 +63,19 @@ describe('getStreetTier', () => {
 
 // ---- getStreetWidth ----
 describe('getStreetWidth', () => {
-  it('tier 1 returns 4', () => expect(getStreetWidth(1)).toBe(4));
-  it('tier 2 returns 8', () => expect(getStreetWidth(2)).toBe(8));
-  it('tier 3 returns 14', () => expect(getStreetWidth(3)).toBe(14));
-  it('tier 4 returns 22', () => expect(getStreetWidth(4)).toBe(22));
-  it('tier 5 returns 32', () => expect(getStreetWidth(5)).toBe(32));
-  it('tier 0 clamps to tier 1 (4)', () => expect(getStreetWidth(0)).toBe(4));
-  it('tier 6 clamps to tier 5 (32)', () => expect(getStreetWidth(6)).toBe(32));
+  it('tier 1 returns 10', () => expect(getStreetWidth(1)).toBe(10));
+  it('tier 2 returns 16', () => expect(getStreetWidth(2)).toBe(16));
+  it('tier 3 returns 24', () => expect(getStreetWidth(3)).toBe(24));
+  it('tier 4 returns 36', () => expect(getStreetWidth(4)).toBe(36));
+  it('tier 5 returns 52', () => expect(getStreetWidth(5)).toBe(52));
+  it('tier 0 clamps to tier 1', () => expect(getStreetWidth(0)).toBe(10));
+  it('tier 6 clamps to tier 5', () => expect(getStreetWidth(6)).toBe(52));
+  it('each tier is strictly wider than the previous', () => {
+    expect(getStreetWidth(2)).toBeGreaterThan(getStreetWidth(1));
+    expect(getStreetWidth(3)).toBeGreaterThan(getStreetWidth(2));
+    expect(getStreetWidth(4)).toBeGreaterThan(getStreetWidth(3));
+    expect(getStreetWidth(5)).toBeGreaterThan(getStreetWidth(4));
+  });
 });
 
 // ---- getBuildingDimensions ----
@@ -131,7 +131,7 @@ describe('layoutCity', () => {
     expect(layout.buildings.length).toBe(3);
   });
 
-  it('every building has x, y, w, d, h, file, hitBox, orient', () => {
+  it('every building has x, y, w, d, h, file, orient', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
     for (const b of layout.buildings) {
       expect(typeof b.x).toBe('number');
@@ -140,18 +140,7 @@ describe('layoutCity', () => {
       expect(typeof b.d).toBe('number');
       expect(typeof b.h).toBe('number');
       expect(b.file).toBeTruthy();
-      expect(b.hitBox).toBeTruthy();
       expect(typeof b.orient).toBe('string');
-    }
-  });
-
-  it('every building has hitBox with x, y, w, h', () => {
-    const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    for (const b of layout.buildings) {
-      expect(typeof b.hitBox.x).toBe('number');
-      expect(typeof b.hitBox.y).toBe('number');
-      expect(b.hitBox.w).toBeGreaterThan(0);
-      expect(b.hitBox.h).toBeGreaterThan(0);
     }
   });
 
@@ -181,6 +170,84 @@ describe('layoutCity', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
     const hasLabel = layout.streets.some(s => s.label && s.label.length > 0);
     expect(hasLabel).toBe(true);
+  });
+});
+
+// ---- Deeply-nested orient correctness ----
+//
+// Exercises the mirror-orient fix. Builds a tree deep enough that a grandchild
+// file goes through TWO levels of mirroring (x-parent primary side → y-subdir
+// primary side → x-sub-subdir with a file), then verifies every building's
+// orient still points toward its own street after all the coordinate flips.
+describe('orient correctness for mirrored subtrees', () => {
+  function makeFile(name) {
+    return { name, type: 'file', path: name, extension: '.ts',
+             size: 500, lines: 20, created: '2024-01-01T00:00:00Z',
+             modified: '2024-01-01T00:00:00Z' };
+  }
+  function makeDir(name, children) {
+    return { name, type: 'directory', path: name,
+             children_count: children.length,
+             descendants_count: children.length + children.filter(c => c.type === 'directory').length,
+             descendants_size: 1000, children };
+  }
+
+  // Tree: root has several subdirs spanning all sideIdx combinations.
+  // aaaa/ (ci=0) -> primary side of root: negateY
+  //   inner/ (ci=0) -> primary side of aaaa: negateX
+  //     f1.ts (file, orient='s' locally after being in inner-x-street)
+  //     f2.ts
+  // bbbb/ (ci=1) -> secondary side of root: no mirror
+  //   f3.ts
+  const TREE = makeDir('root', [
+    makeDir('aaaa', [ makeDir('inner', [ makeFile('f1.ts'), makeFile('f2.ts') ]) ]),
+    makeDir('bbbb', [ makeFile('f3.ts') ]),
+    makeDir('cccc', [ makeFile('f4.ts') ]),
+    makeDir('dddd', [ makeFile('f5.ts') ]),
+  ]);
+
+  // For each building, verify its door-facing direction actually points at its
+  // adjacent street. We find the nearest street and check the direction matches.
+  it('every building has orient pointing toward its adjacent street', () => {
+    const layout = layoutCity({ tree: TREE }, TEST_CONFIG);
+
+    for (const b of layout.buildings) {
+      // Compute the door-face direction in world coords from orient.
+      let doorDX = 0, doorDY = 0;
+      if (b.orient === 's') doorDY =  1;   // +y
+      else if (b.orient === 'n') doorDY = -1;
+      else if (b.orient === 'e') doorDX =  1;   // +x
+      else if (b.orient === 'w') doorDX = -1;
+
+      // Building edge in the direction of the door.
+      const edgeX = b.x + doorDX * b.w / 2;
+      const edgeY = b.y + doorDY * b.d / 2;
+
+      // Find the closest street AHEAD OF the door along its facing direction.
+      // The door should be within a few units of some street's footprint.
+      let matched = false;
+      for (const s of layout.streets) {
+        // Compute s's footprint rect
+        const halfL = s.length / 2;
+        const halfW = s.width / 2;
+        let sx1, sx2, sy1, sy2;
+        if (s.orientation === 'x') {
+          sx1 = s.x - halfL; sx2 = s.x + halfL;
+          sy1 = s.y - halfW; sy2 = s.y + halfW;
+        } else {
+          sx1 = s.x - halfW; sx2 = s.x + halfW;
+          sy1 = s.y - halfL; sy2 = s.y + halfL;
+        }
+        // Probe a point a few units in front of the door.
+        const probeX = edgeX + doorDX * 5;
+        const probeY = edgeY + doorDY * 5;
+        if (probeX >= sx1 && probeX <= sx2 && probeY >= sy1 && probeY <= sy2) {
+          matched = true;
+          break;
+        }
+      }
+      expect(matched).toBe(true);
+    }
   });
 });
 

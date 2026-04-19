@@ -14,7 +14,15 @@ test.describe('CodeCity E2E', () => {
     });
 
     await page.goto('file://' + testCityPath);
-    await page.waitForLoadState('load');
+    // `load` only fires once all scripts finish executing, but the ESM module
+    // that imports Three.js from jsdelivr settles asynchronously. Wait for
+    // window.THREE AND a canvas with a non-zero WebGL backing store before
+    // any test proceeds.
+    await page.waitForFunction(() => typeof window.THREE !== 'undefined', null, { timeout: 60_000 });
+    await page.waitForFunction(() => {
+      const c = document.getElementById('city');
+      return c && c.width > 0 && c.height > 0;
+    }, null, { timeout: 15_000 });
 
     // Stash errors for assertions
     page._consoleErrors = errors;
