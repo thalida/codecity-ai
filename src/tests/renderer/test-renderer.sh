@@ -557,6 +557,108 @@ var miss = hitTest(200, 200, mockBuildings, 1, 0, 0, 100, 100);
 assert_eq("hitTest returns null for miss", null, miss);
 
 // =============================================================================
+// =============================================================================
+// INTEGRATION TESTS — Cross-module interface contracts
+// These test that module A's output is compatible with module B's input.
+// Every bug found in E2E verification was a cross-module mismatch that unit
+// tests missed because they tested functions in isolation.
+// =============================================================================
+
+console.log("\n18. Integration: layoutCity → interactions renderCity contract");
+
+// layoutCity must produce buildings with screenX/screenY (not just cx/cy)
+// because interactions.js renderCity reads bld.screenX / bld.screenY
+var intLayout = layoutCity(TEST_TREE, CONFIG);
+var intBuildings = intLayout.buildings;
+var intBlocks = intLayout.blocks;
+
+for (var ib = 0; ib < intBuildings.length; ib++) {
+  var bld = intBuildings[ib];
+  assert_eq(
+    "building[" + ib + "] has screenX (not undefined)",
+    true,
+    typeof bld.screenX === 'number' && !isNaN(bld.screenX)
+  );
+  assert_eq(
+    "building[" + ib + "] has screenY (not undefined)",
+    true,
+    typeof bld.screenY === 'number' && !isNaN(bld.screenY)
+  );
+}
+
+for (var ig = 0; ig < intBlocks.length; ig++) {
+  var blk = intBlocks[ig];
+  assert_eq(
+    "block[" + ig + "] has screenX (not undefined)",
+    true,
+    typeof blk.screenX === 'number' && !isNaN(blk.screenX)
+  );
+  assert_eq(
+    "block[" + ig + "] has screenY (not undefined)",
+    true,
+    typeof blk.screenY === 'number' && !isNaN(blk.screenY)
+  );
+  assert_eq(
+    "block[" + ig + "] has width (not undefined)",
+    true,
+    typeof blk.width === 'number' && blk.width > 0
+  );
+  assert_eq(
+    "block[" + ig + "] has depth (not undefined)",
+    true,
+    typeof blk.depth === 'number' && blk.depth > 0
+  );
+}
+
+console.log("\n19. Integration: layoutCity → getBuildingColor contract");
+
+// After layoutCity, the color assignment loop (from interactions.js startRenderLoop)
+// must produce valid HSL colors for every building — NOT 'placeholder'
+var intDateRanges = getDateRanges(TEST_TREE);
+var intPalette = CONFIG.palette || {};
+
+for (var ic = 0; ic < intBuildings.length; ic++) {
+  var cb = intBuildings[ic];
+  if (cb.file && cb.file.type === 'file') {
+    cb.color = getBuildingColor(cb.file, intPalette, intDateRanges, CONFIG);
+  } else {
+    cb.color = 'hsl(220, 15%, 25%)';
+  }
+  assert_eq(
+    "building[" + ic + "] color is valid HSL (not placeholder)",
+    true,
+    typeof cb.color === 'string' && cb.color.indexOf('hsl(') === 0
+  );
+}
+
+console.log("\n20. Integration: building.file has .type for click handling");
+
+// interactions.js handleClick checks hit.file.type === 'directory' or 'file'
+// Every building must have file.type set
+for (var id = 0; id < intBuildings.length; id++) {
+  var db = intBuildings[id];
+  assert_eq(
+    "building[" + id + "] has file.type",
+    true,
+    db.file && (db.file.type === 'file' || db.file.type === 'directory')
+  );
+}
+
+console.log("\n21. Integration: sortForRendering preserves required properties");
+
+var sorted = sortForRendering(intBuildings);
+for (var is = 0; is < sorted.length; is++) {
+  var sb = sorted[is];
+  assert_eq("sorted[" + is + "] has screenX", true, typeof sb.screenX === 'number');
+  assert_eq("sorted[" + is + "] has screenY", true, typeof sb.screenY === 'number');
+  assert_eq("sorted[" + is + "] has color", true, typeof sb.color === 'string');
+  assert_eq("sorted[" + is + "] has file", true, sb.file !== undefined);
+}
+
+console.log("\n22. Integration: HTML test files reference valid paths");
+
+// This runs in bash below — see the path validation section after EOF
+
 // Summary
 // =============================================================================
 console.log("\n" + "=".repeat(36));
@@ -571,5 +673,39 @@ if (FAIL > 0) {
 }
 EOF
 
-# ── Run the tests ──────────────────────────────────────────────────────────────
+# ── Run the Node tests ─────────────────────────────────────────────────────────
 node "$TMPFILE"
+NODE_EXIT=$?
+
+# ── HTML path validation ──────────────────────────────────────────────────────
+echo ""
+echo "22. Integration: HTML test files reference valid paths"
+HTML_PASS=0
+HTML_FAIL=0
+
+for html_file in "$SCRIPT_DIR"/test-city.html "$SCRIPT_DIR"/test-engine.html; do
+  if [ ! -f "$html_file" ]; then continue; fi
+  html_dir="$(dirname "$html_file")"
+  html_name="$(basename "$html_file")"
+
+  # Extract all src= and href= paths (relative only, skip http/https)
+  refs=$(grep -oE '(src|href)="[^"]*"' "$html_file" | grep -v 'http' | sed 's/.*="\(.*\)"/\1/')
+
+  for ref in $refs; do
+    resolved="$html_dir/$ref"
+    if [ -f "$resolved" ]; then
+      echo "  ✓ $html_name: $ref exists"
+      HTML_PASS=$((HTML_PASS + 1))
+    else
+      echo "  ✗ $html_name: $ref NOT FOUND (resolved to $resolved)"
+      HTML_FAIL=$((HTML_FAIL + 1))
+    fi
+  done
+done
+
+echo ""
+echo "HTML path results: $HTML_PASS passed, $HTML_FAIL failed"
+
+if [ "$HTML_FAIL" -gt 0 ] || [ "$NODE_EXIT" -ne 0 ]; then
+  exit 1
+fi

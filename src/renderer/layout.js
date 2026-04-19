@@ -421,8 +421,12 @@ function layoutCity(manifest, config) {
     var worldCy = slotCy - totalDepth / 2;
 
     outBlocks.push({
+      screenX:    worldCx,
+      screenY:    worldCy,
       cx:         worldCx,
       cy:         worldCy,
+      width:      blockLayouts[n].blockWidth,
+      depth:      blockLayouts[n].blockDepth,
       blockWidth: blockLayouts[n].blockWidth,
       blockDepth: blockLayouts[n].blockDepth,
       dir:        blockLayouts[n].dir
@@ -436,6 +440,8 @@ function layoutCity(manifest, config) {
       var wcy = worldCy + b.cy;
 
       outBuildings.push({
+        screenX: wcx,
+        screenY: wcy,
         cx:      wcx,
         cy:      wcy,
         width:   b.width,
@@ -506,9 +512,13 @@ function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
     // Translate sub buildings into parent-relative coords
     for (var bk = 0; bk < sub.buildings.length; bk++) {
       var b = sub.buildings[bk];
+      var sx = subCx + b.cx;
+      var sy = subCy + b.cy;
       allBuildings.push({
-        cx:     subCx + b.cx,
-        cy:     subCy + b.cy,
+        screenX: sx,
+        screenY: sy,
+        cx:     sx,
+        cy:     sy,
         width:  b.width,
         depth:  b.depth,
         height: b.height,
