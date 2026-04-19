@@ -6,17 +6,17 @@ Create a symlink from your Codex agents directory to this repository:
 
 **macOS / Linux:**
 ```bash
-ln -s /path/to/codecity-ai/src/skills ~/.agents/skills/codecity
+ln -s /path/to/codecity-ai/skills ~/.agents/skills/codecity
 ```
 
 **Windows (Command Prompt, run as Administrator):**
 ```cmd
-mklink /J %USERPROFILE%\.agents\skills\codecity C:\path\to\codecity-ai\src\skills
+mklink /J %USERPROFILE%\.agents\skills\codecity C:\path\to\codecity-ai\skills
 ```
 
 **Windows (PowerShell, run as Administrator):**
 ```powershell
-New-Item -ItemType Junction -Path "$env:USERPROFILE\.agents\skills\codecity" -Target "C:\path\to\codecity-ai\src\skills"
+New-Item -ItemType Junction -Path "$env:USERPROFILE\.agents\skills\codecity" -Target "C:\path\to\codecity-ai\skills"
 ```
 
 ## Updating CodeCity AI

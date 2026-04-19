@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# test-scan.sh — Integration tests for src/scanner/scan.sh
+# test-scan.sh — Integration tests for skills/codecity/scan.sh
 #
 # Run from any directory:
-#   bash src/scanner/tests/test-scan.sh
+#   bash skills/codecity/tests/scanner/test-scan.sh
 #
 # Prerequisites:
-#   - bash src/scanner/tests/fixtures/setup.sh must have been run first
+#   - bash skills/codecity/tests/scanner/fixtures/setup.sh must have been run first
 #   - jq must be available on PATH
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-SCAN="$REPO_ROOT/src/scanner/scan.sh"
+SKILL_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SCAN="$SKILL_ROOT/scan.sh"
 FIXTURE="$SCRIPT_DIR/fixtures/sample-repo"
 
 PASS=0

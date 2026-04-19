@@ -1,13 +1,7 @@
-// colors.js — CodeCity AI HSL color system
-//
-// Maps file metadata to HSL color values:
-//   Hue        → file extension  (configurable palette, deterministic hash for unknowns)
-//   Saturation → file age        (newer = more saturated, older = faded/grayish)
-//   Lightness  → last modified   (recently modified = bright, untouched = dim)
-//
-// All functions are globally available (no modules). Files are concatenated at build time.
-
-// ── Hue ───────────────────────────────────────────────────────────────────────
+// colors.js — HSL mapping from file metadata.
+//   Hue        → file extension  (palette, deterministic hash for unknowns)
+//   Saturation → creation age    (newer = vivid, older = faded)
+//   Lightness  → last modified   (recent = bright, untouched = dim)
 
 /**
  * Map a file extension to a hue value (0–359).
@@ -21,7 +15,7 @@
  * @param {Object} palette   - Map of extension → hue from defaults.json.
  * @returns {number} Integer hue in [0, 359].
  */
-function getHue(extension, palette) {
+export function getHue(extension, palette) {
   // Direct palette lookup
   if (palette && Object.prototype.hasOwnProperty.call(palette, extension)) {
     return palette[extension];
@@ -50,7 +44,7 @@ function getHue(extension, palette) {
  * @param {Object}      config      - { min: number, max: number } (e.g. { min: 20, max: 100 }).
  * @returns {number} Saturation percentage, clamped to [config.min, config.max].
  */
-function getSaturation(createdDate, minDate, maxDate, config) {
+export function getSaturation(createdDate, minDate, maxDate, config) {
   // Fallback: no date available → mid-point
   if (!createdDate) {
     return 60;
@@ -89,7 +83,7 @@ function getSaturation(createdDate, minDate, maxDate, config) {
  * @param {Object}      config       - { min: number, max: number } (e.g. { min: 25, max: 70 }).
  * @returns {number} Lightness percentage, clamped to [config.min, config.max].
  */
-function getLightness(modifiedDate, minDate, maxDate, config) {
+export function getLightness(modifiedDate, minDate, maxDate, config) {
   // Fallback: no date available → mid-point
   if (!modifiedDate) {
     return 45;
@@ -126,7 +120,7 @@ function getLightness(modifiedDate, minDate, maxDate, config) {
  * @returns {{ createdMin: string|null, createdMax: string|null,
  *             modifiedMin: string|null, modifiedMax: string|null }}
  */
-function getDateRanges(manifestTree) {
+export function getDateRanges(manifestTree) {
   var createdMin  = null;
   var createdMax  = null;
   var modifiedMin = null;
@@ -197,7 +191,7 @@ function getDateRanges(manifestTree) {
  * @param {Object} config     - Color config with { saturation: {min,max}, lightness: {min,max} }.
  * @returns {string} CSS HSL string, e.g. "hsl(215, 80%, 55%)".
  */
-function getBuildingColor(file, palette, dateRanges, config) {
+export function getBuildingColor(file, palette, dateRanges, config) {
   // Prefer git dates, fall back to filesystem dates
   var created  = (file.git && file.git.created)  || file.created  || null;
   var modified = (file.git && file.git.modified) || file.modified || null;
@@ -207,15 +201,4 @@ function getBuildingColor(file, palette, dateRanges, config) {
   var l = getLightness(modified,  dateRanges.modifiedMin, dateRanges.modifiedMax, config.lightness);
 
   return "hsl(" + h + ", " + s + "%, " + l + "%)";
-}
-
-// CommonJS exports for Vitest (guarded so browser concatenation still works)
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    getHue,
-    getSaturation,
-    getLightness,
-    getDateRanges,
-    getBuildingColor,
-  };
 }

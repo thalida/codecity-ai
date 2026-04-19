@@ -1,13 +1,11 @@
-// layout.test.js — Unit tests for src/renderer/layout.js
 import { describe, it, expect } from 'vitest';
-
-const {
+import {
   getStreetTier,
   getStreetWidth,
   getBuildingDimensions,
   layoutCity,
   sortForRendering,
-} = require('../layout.js');
+} from '../../src/scene/layout.js';
 
 const TEST_CONFIG = {
   street_tiers: [3, 8, 15, 30],

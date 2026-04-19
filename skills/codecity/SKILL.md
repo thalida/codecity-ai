@@ -5,26 +5,28 @@ description: >
   city from a folder/repo, or invokes /codecity. Generates an interactive
   3D city where directories are streets and files are buildings, written as
   a single self-contained HTML file.
-version: 2.0.0
+version: 3.0.0
 argument-hint: "[path] [--depth n] [--output path] [--exclude pattern]"
 allowed-tools: [Read, Bash, AskUserQuestion]
 ---
 
 # CodeCity Skill
 
-The heavy lifting is done by two scripts:
+Everything you need lives next to this file:
 
-- `src/scanner/scan.sh`  — walks a directory, emits a JSON manifest.
-- `src/skills/codecity/build.sh` — assembles the HTML from template + manifest + config.
+- `scan.sh`       — walks a directory, emits a JSON manifest.
+- `build.sh`      — fills the prebuilt HTML template with manifest + config.
+- `defaults.json` — default palette and building/saturation/lightness config.
+- `dist/index.html` — prebuilt renderer (committed; produced from `src/` via
+  `npm run build` at dev time, so end users don't need Node).
 
 Your job is just to wire them together. If you need to understand flags or
 output shapes, run each script with `--help`.
 
 ## Plugin directory
 
-This SKILL.md lives at `<plugin-dir>/src/skills/codecity/SKILL.md`, so
-`<plugin-dir>` is three levels above it. Resolve it once; every path below
-is relative to `<plugin-dir>`.
+This SKILL.md lives at `<plugin-dir>/skills/codecity/SKILL.md`. Every path
+below is relative to this file's directory.
 
 ---
 
@@ -37,14 +39,14 @@ whose answer is already on the command line.
 2. **How deep?** — default: unlimited.
 3. **Filters?** — default: `.gitignore` on, no custom patterns.
 4. **Where to save?** — default: `~/.codecity/`.
-5. **Palette overrides?** — default: use `src/config/defaults.json`.
+5. **Palette overrides?** — default: use `defaults.json`.
 
 ---
 
 ## Phase 2: Scan
 
 ```bash
-bash <plugin-dir>/src/scanner/scan.sh \
+bash <skill-dir>/scan.sh \
   --root <absolute-path> \
   [--depth <n>] \
   [--no-gitignore] \
@@ -63,7 +65,7 @@ error. Common causes: path doesn't exist, permission denied, `jq` not installed.
 If the user didn't override anything, just use defaults:
 
 ```bash
-cp <plugin-dir>/src/config/defaults.json <tmp>/config.json
+cp <skill-dir>/defaults.json <tmp>/config.json
 ```
 
 If they did provide overrides (e.g. `--palette '{"\.go": 185}'`), merge them:
@@ -71,7 +73,7 @@ If they did provide overrides (e.g. `--palette '{"\.go": 185}'`), merge them:
 ```bash
 # Write user overrides to <tmp>/overrides.json first, then:
 jq -s '.[0] * .[1]' \
-  <plugin-dir>/src/config/defaults.json \
+  <skill-dir>/defaults.json \
   <tmp>/overrides.json > <tmp>/config.json
 ```
 
@@ -80,7 +82,7 @@ jq -s '.[0] * .[1]' \
 ## Phase 4: Build
 
 ```bash
-bash <plugin-dir>/src/skills/codecity/build.sh \
+bash <skill-dir>/build.sh \
   --project  <project-name> \
   --manifest <tmp>/manifest.json \
   --config   <tmp>/config.json \
@@ -148,5 +150,5 @@ Outputs JSON to stdout.
 | `--config <path>` | Path to merged config JSON (or `-` for stdin) |
 | `--output <path>` | Where to write the HTML |
 
-The resulting HTML is self-contained apart from a single CDN fetch of
-Three.js on first open. Works from `file://` with no server.
+The resulting HTML is fully self-contained (JS, CSS, Three.js all inlined).
+Works from `file://` with no server.

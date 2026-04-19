@@ -1,13 +1,11 @@
-// colors.test.js — Unit tests for src/renderer/colors.js
 import { describe, it, expect } from 'vitest';
-
-const {
+import {
   getHue,
   getSaturation,
   getLightness,
   getDateRanges,
   getBuildingColor,
-} = require('../colors.js');
+} from '../../src/scene/colors.js';
 
 const TEST_CONFIG = {
   street_tiers: [3, 8, 15, 30],

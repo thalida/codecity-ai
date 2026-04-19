@@ -9,5 +9,5 @@
   },
   "repository": "https://github.com/thalida/codecity-ai",
   "license": "AGPL-3.0",
-  "skills": "src/skills"
+  "skills": "skills"
 }

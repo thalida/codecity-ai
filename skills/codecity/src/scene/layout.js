@@ -1,25 +1,8 @@
-// =============================================================================
-// layout.js — Grid Layout Algorithm
-// CodeCity AI — Computes world-space positions for buildings, blocks, and streets.
-//
-// All functions are declared with `function` keyword so they are hoisted and
-// available globally after script concatenation. No dependencies on the
-// rendering engine — layout output is pure data.
-//
-// Interface contract:
+// layout.js — Street/building placement algorithm. Pure data output, no DOM or Three.js.
 //   Building: { x, y, w, d, h, color, file, orient }
-//   Block:    { x, y, w, d, label, dir }
-// =============================================================================
+//   Street:   { x, y, w, d, label, dir }
 
-
-// -----------------------------------------------------------------------------
-// getStreetTier(childrenCount, tiers) -> number [1-5]
-//
-// Maps a directory's child count to one of 5 street tiers using threshold
-// breakpoints. The tiers array contains 4 thresholds from config
-// (e.g. [3, 8, 15, 30]).
-// -----------------------------------------------------------------------------
-function getStreetTier(childrenCount, tiers) {
+export function getStreetTier(childrenCount, tiers) {
   if (childrenCount <= tiers[0]) return 1;
   if (childrenCount <= tiers[1]) return 2;
   if (childrenCount <= tiers[2]) return 3;
@@ -28,31 +11,14 @@ function getStreetTier(childrenCount, tiers) {
 }
 
 
-// -----------------------------------------------------------------------------
-// getStreetWidth(tier) -> number
-//
-// Returns the world-space width of a street for the given tier. The smallest
-// tier is sized so even tiny directories have a street that's noticeably
-// wider than the sidewalk border on a larger boulevard.
-// -----------------------------------------------------------------------------
-function getStreetWidth(tier) {
+export function getStreetWidth(tier) {
   var widths = [0, 10, 16, 24, 36, 52];
   var t = Math.max(1, Math.min(5, Math.round(tier)));
   return widths[t];
 }
 
 
-// -----------------------------------------------------------------------------
-// getBuildingDimensions(file, config) -> { w, d, h }
-//
-// Derives isometric building dimensions from file metadata using logarithmic
-// scaling so that both tiny and enormous files produce readable buildings.
-//
-//   h — from line count  (more lines -> taller)
-//   w — from file size in bytes (larger file -> wider)
-//   d — average of h and w: (h + w) / 2
-// -----------------------------------------------------------------------------
-function getBuildingDimensions(file, config) {
+export function getBuildingDimensions(file, config) {
   var bc = config.building;
 
   // ---- Height from line count ------------------------------------------------
@@ -106,7 +72,7 @@ var ROOT_END_PAD      = 8;   // fallback pad for the root street (has no parent)
 //
 // `color` starts as null — the renderer must call getBuildingColor before drawing.
 // -----------------------------------------------------------------------------
-function layoutCity(manifest, config) {
+export function layoutCity(manifest, config) {
   var tree = manifest.tree || manifest;
   var result = { streets: [], buildings: [], paths: [], blocks: [] };
 
@@ -497,7 +463,7 @@ function _computeBbox(layout) {
 // Painter's algorithm: sorts buildings so that those further from the viewer
 // (higher x + y sum) are drawn first. Returns a new sorted array.
 // -----------------------------------------------------------------------------
-function sortForRendering(buildings) {
+export function sortForRendering(buildings) {
   var sorted = buildings.slice();
   sorted.sort(function(a, b) {
     // Ascending: lowest x+y drawn first.
@@ -508,15 +474,4 @@ function sortForRendering(buildings) {
     return (a.x + a.y) - (b.x + b.y);
   });
   return sorted;
-}
-
-// CommonJS exports for Vitest (guarded so browser concatenation still works)
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    getStreetTier,
-    getStreetWidth,
-    getBuildingDimensions,
-    layoutCity,
-    sortForRendering,
-  };
 }

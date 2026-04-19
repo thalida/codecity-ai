@@ -1,10 +1,8 @@
-// tree.test.js — Unit tests for src/renderer/tree.js (left sidebar tree view)
 import { describe, it, expect } from 'vitest';
-
-const {
+import {
   buildTree,
   showTreeSidebar,
-} = require('../tree.js');
+} from '../../src/components/tree.js';
 
 const TEST_TREE = {
   name: "project", type: "directory", path: ".",

@@ -1,20 +1,6 @@
-// =============================================================================
-// tree.js — Left Sidebar Tree View
-// CodeCity AI — Renders a collapsible folder/file tree from the manifest.
-//
-// All functions are declared with `function` keyword so they are hoisted and
-// available globally after script concatenation.
-// =============================================================================
+// tree.js — Left sidebar tree view. Renders a collapsible folder/file tree.
 
-
-// -----------------------------------------------------------------------------
-// buildTree(node) -> HTMLElement (<ul>)
-//
-// Recursively creates a nested <ul>/<li> DOM tree from a manifest node.
-// Directories are collapsible (click to expand/collapse).
-// Files are leaf nodes.
-// -----------------------------------------------------------------------------
-function buildTree(node) {
+export function buildTree(node) {
   var ul = document.createElement('ul');
   ul.className = 'tree-list';
 
@@ -96,13 +82,7 @@ function buildTree(node) {
 }
 
 
-// -----------------------------------------------------------------------------
-// showTreeSidebar(manifest)
-//
-// Populates the #tree-sidebar element with the folder/file tree built from
-// the manifest. Clears any existing content first.
-// -----------------------------------------------------------------------------
-function showTreeSidebar(manifest) {
+export function showTreeSidebar(manifest) {
   var container = document.getElementById('tree-sidebar');
   if (!container) return;
 
@@ -127,13 +107,4 @@ function showTreeSidebar(manifest) {
   var treeEl = buildTree(tree);
   treeEl.className = 'tree-list tree-root';
   container.appendChild(treeEl);
-}
-
-
-// CommonJS exports for Vitest (guarded so browser concatenation still works)
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    buildTree,
-    showTreeSidebar,
-  };
 }

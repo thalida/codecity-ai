@@ -1,28 +1,11 @@
-// =============================================================================
-// engine.js — Three.js Scene Builder for CodeCity AI
+// engine.js — Three.js scene builder. Turns layout output into a Scene of meshes.
 //
-// Builds a 3D scene from the layout output. The scene is a flat ground plane
-// oriented so world-X runs east-west and world-Y runs north-south, with Z up.
-// Each building is a BoxGeometry mesh whose side faces carry a CanvasTexture
-// painted with the floor-banding, window grid, and (on the ground floor) a
-// door — the same visual language the old 2D isometric renderer used.
-//
-// Depends on THREE being available as a global (loaded via CDN before this file).
-//
-// All functions are declared with `function` so they are hoisted and globally
-// available after script concatenation.
-// =============================================================================
+// World axes: X east-west, Y north-south, Z up. Buildings are BoxGeometry with
+// per-face CanvasTextures (floor bands, windows, ground-floor door). Streets
+// are flat planes. The root of the tree gets a spinning gold octahedron on a
+// plaza.
 
-/* global THREE */
-/* exported createBuildingMesh, createStreetMesh, createPathMesh,
-            createRootGem, createStreetLabels, buildCityScene,
-            shadeColor, shadeAndShiftHue, shadeByRatio */
-
-
-// -----------------------------------------------------------------------------
-// HSL helpers — unchanged from the canvas renderer; still used by colors.js
-// consumers that want to shade or tweak the computed building color.
-// -----------------------------------------------------------------------------
+import * as THREE from 'three';
 function hslToComponents(hslString) {
   var inner = hslString.replace(/^hsl\(/i, '').replace(/\)$/, '');
   var parts = inner.split(',');
@@ -604,14 +587,7 @@ function createStreetLabels(street) {
 }
 
 
-// -----------------------------------------------------------------------------
-// buildCityScene(layout) -> { scene, buildingMeshes, streetPickables, bbox }
-//
-// Builds the Three.js scene from a layout and returns the pickable meshes
-// alongside it. The caller wires `buildingMeshes` ∪ `streetPickables` into
-// a raycaster for click selection.
-// -----------------------------------------------------------------------------
-function buildCityScene(layout) {
+export function buildCityScene(layout) {
   var scene = new THREE.Scene();
   scene.background = new THREE.Color(GROUND_COLOR);
 
@@ -670,19 +646,5 @@ function buildCityScene(layout) {
     streetLabels: streetLabels,
     rootGem: rootGem,
     bbox: bbox
-  };
-}
-
-
-// CommonJS exports for Vitest (guarded so browser concatenation still works).
-// In node, THREE isn't available, so we only export the pure helpers that
-// don't touch THREE. Rendering tests now run in a real browser via Playwright.
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    hslToComponents,
-    componentsToHsl,
-    shadeColor,
-    shadeAndShiftHue,
-    FLOOR_HEIGHT
   };
 }

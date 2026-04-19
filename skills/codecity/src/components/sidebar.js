@@ -1,11 +1,6 @@
-// sidebar.js — CodeCity AI sidebar detail panel
-//
-// Handles creating and populating the right-side metadata panel that slides in
-// when a user clicks a building (file) or street block (directory).
-//
-// All functions are globally available (no modules). Files are concatenated at build time.
+// sidebar.js — Right-side detail panel for buildings (files) and streets (directories).
 
-// ── State ─────────────────────────────────────────────────────────────────────
+import { getHue } from '../scene/colors.js';
 
 // Track the currently selected building element so we can clear its highlight
 var _selectedBuilding = null;
@@ -21,7 +16,7 @@ var _selectedBuilding = null;
  *
  * @param {Object} file - File node from the scanner manifest.
  */
-function showFileSidebar(file) {
+export function showFileSidebar(file) {
   var sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
 
@@ -54,13 +49,7 @@ function showFileSidebar(file) {
     badge.className = 'ext-badge';
     badge.textContent = file.extension;
 
-    // Derive hue from the extension using the globally available getHue function
-    var hue = 220; // default blue
-    if (typeof getHue === 'function' && typeof _palette !== 'undefined') {
-      hue = getHue(file.extension, _palette);
-    } else if (typeof getHue === 'function') {
-      hue = getHue(file.extension, {});
-    }
+    var hue = getHue(file.extension, {});
     badge.style.backgroundColor = 'hsl(' + hue + ', 60%, 40%)';
     badge.style.color = 'hsl(' + hue + ', 20%, 90%)';
     badge.style.borderColor = 'hsl(' + hue + ', 60%, 50%)';
@@ -151,7 +140,7 @@ function showFileSidebar(file) {
  *
  * @param {Object} dir - Directory node from the scanner manifest.
  */
-function showDirSidebar(dir) {
+export function showDirSidebar(dir) {
   var sidebar = document.getElementById('sidebar');
   if (!sidebar) return;
 
@@ -244,7 +233,7 @@ function showDirSidebar(dir) {
 /**
  * Close the sidebar and clear any selected building highlight.
  */
-function closeSidebar() {
+export function closeSidebar() {
   var sidebar = document.getElementById('sidebar');
   if (sidebar) {
     sidebar.classList.remove('open');
@@ -348,31 +337,6 @@ function _makePathRow(pathText) {
   return row;
 }
 
-/**
- * Append a label/value pair to a <dl> element.
- *
- * @param {Element} dl    - The <dl> container to append to.
- * @param {string}  label - The term text.
- * @param {string}  value - The definition text.
- */
-function _appendMetaRow(dl, label, value) {
-  var dt = document.createElement('dt');
-  dt.textContent = label;
-  dl.appendChild(dt);
-
-  var dd = document.createElement('dd');
-  dd.textContent = value;
-  dl.appendChild(dd);
-}
-
-/**
- * Append a stat item (label + value) to a stats grid container.
- *
- * @param {Element} container - The .sidebar-stats grid container.
- * @param {string}  label     - The stat label text.
- * @param {string}  value     - The stat value text.
- * @param {string}  [source]  - Optional source tag (e.g. "git", "fs").
- */
 function _appendStatItem(container, label, value, source) {
   var item = document.createElement('div');
   item.className = 'stat-item';
@@ -397,50 +361,6 @@ function _appendStatItem(container, label, value, source) {
   container.appendChild(item);
 }
 
-/**
- * Append a contributors term/definition pair to the <dl>.
- * Contributors are rendered as an inline list.
- *
- * @param {Element}  dl           - The <dl> container.
- * @param {string[]} contributors - Array of contributor name strings.
- */
-function _appendContributors(dl, contributors) {
-  var dt = document.createElement('dt');
-  dt.textContent = 'Contributors';
-  dl.appendChild(dt);
-
-  var dd = document.createElement('dd');
-  var list = document.createElement('ul');
-  list.className = 'sidebar-contributors';
-
-  for (var i = 0; i < contributors.length; i++) {
-    var li = document.createElement('li');
-    li.textContent = contributors[i];
-    list.appendChild(li);
-  }
-
-  dd.appendChild(list);
-  dl.appendChild(dd);
-}
-
-/**
- * Build a "total / X files / Y dirs" summary string for children/descendants.
- *
- * @param {number} total
- * @param {number} files
- * @param {number} dirs
- * @returns {string}
- */
-function _countSummary(total, files, dirs) {
-  return (total || 0) + ' total / ' + (files || 0) + ' files / ' + (dirs || 0) + ' dirs';
-}
-
-/**
- * Legacy clipboard copy using a temporary textarea and execCommand.
- * Used as a fallback when navigator.clipboard is unavailable.
- *
- * @param {string} text
- */
 function _legacyCopy(text) {
   var ta = document.createElement('textarea');
   ta.value = text;
@@ -457,17 +377,4 @@ function _legacyCopy(text) {
     // Silent fallback — nothing we can do without clipboard access
   }
   document.body.removeChild(ta);
-}
-
-// CommonJS exports for Vitest (guarded so browser concatenation still works)
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    showFileSidebar,
-    showDirSidebar,
-    closeSidebar,
-    copyToClipboard,
-    formatBytes,
-    formatDate,
-    _appendStatItem,
-  };
 }

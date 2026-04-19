@@ -6,10 +6,10 @@
 docs/superpowers/
 
 # Generated test fixtures
-#   scanner: run src/scanner/tests/fixtures/setup.sh to rebuild
+#   scanner: run skills/codecity/tests/scanner/fixtures/setup.sh to rebuild
 #   e2e:     Playwright globalSetup writes test-city.html under .generated/
-src/scanner/tests/fixtures/sample-repo/
-src/renderer/tests/e2e/.generated/
+skills/codecity/tests/scanner/fixtures/sample-repo/
+skills/codecity/tests/e2e/.generated/
 
 # OS
 .DS_Store
