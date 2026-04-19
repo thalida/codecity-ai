@@ -221,61 +221,17 @@ function startRenderLoop(canvas, manifest, config) {
     ctx.translate(W / 2 + panX, H / 2 + panY);
     ctx.scale(zoomLevel, zoomLevel);
 
-    // ---- Ground blocks (drawn first -- painter's algorithm) ------------------
-    for (var g = 0; g < layout.blocks.length; g++) {
-      var block = layout.blocks[g];
+    // ---- Streets (sidewalks first, then asphalts so intersections merge) ----
+    drawStreets(ctx, layout.streets || []);
 
-      // Project block world coordinates to isometric screen coordinates
-      var bp = isoProject(block.x, block.y, 0);
+    // ---- Paths (sidewalk-colored strips from each building to its street) --
+    drawPaths(ctx, layout.paths || []);
 
-      // Draw a slightly lighter ground for the street area (visual distinction)
-      drawGround(
-        ctx,
-        bp.sx,
-        bp.sy,
-        block.w,
-        block.d,
-        '#121828',
-        '#283050'
-      );
-    }
-
-    // ---- Buildings (sorted back-to-front) -----------------------------------
+    // ---- Buildings (sorted back-to-front, with per-building orientation) ----
     for (var bi = 0; bi < buildings.length; bi++) {
       var bld = buildings[bi];
-
-      // Pass world coordinates directly — drawBuilding handles projection
-      // internally via isoProject on the corner offsets, then adds cx/cy.
-      // cx/cy must be in the SAME coordinate space as the projected offsets
-      // (screen space), so we project the building position here.
       var bp = isoProject(bld.x, bld.y, 0);
-
-      drawBuilding(
-        ctx,
-        bp.sx,
-        bp.sy,
-        bld.w,
-        bld.d,
-        bld.h,
-        bld.color
-      );
-    }
-
-    // ---- Labels (drawn AFTER buildings so they aren't occluded) ---------------
-    for (var li = 0; li < layout.blocks.length; li++) {
-      var lblBlock = layout.blocks[li];
-      if (lblBlock.label) {
-        // Project to isometric screen coordinates, position at the front edge
-        // of the block (high y = front in isometric) so label sits below buildings
-        var lp = isoProject(lblBlock.x, lblBlock.y + lblBlock.d / 2, 0);
-        drawLabel(
-          ctx,
-          lp.sx,
-          lp.sy + 8,
-          lblBlock.label,
-          '#8ca0c8'
-        );
-      }
+      drawBuilding(ctx, bp.sx, bp.sy, bld.w, bld.d, bld.h, bld.color, bld.orient);
     }
 
     ctx.restore();

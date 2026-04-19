@@ -111,9 +111,9 @@ describe('Cross-module integration', () => {
     }
   });
 
-  it('layoutCity has at least one block with a label string', () => {
+  it('layoutCity has at least one street with a label string', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    const hasLabel = layout.blocks.some(b => typeof b.label === 'string' && b.label.length > 0);
+    const hasLabel = layout.streets.some(s => typeof s.label === 'string' && s.label.length > 0);
     expect(hasLabel).toBe(true);
   });
 

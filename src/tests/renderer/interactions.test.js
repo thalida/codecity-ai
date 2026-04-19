@@ -98,30 +98,19 @@ describe('hitTestBlock', () => {
   });
 
   it('returns a block when clicking within its projected ground area', () => {
-    var layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    var blocks = layout.blocks;
+    // Block at world (0, 0) with a 40×40 footprint and a fake `dir` payload
+    var blocks = [{ x: 0, y: 0, w: 40, d: 40, dir: { name: 'fake' } }];
 
-    // Project the center of the first block to find where it is in screen space
-    var block = blocks[0];
-    var center = isoProject(block.x, block.y, 0);
-
-    // The click coords need to be in screen space (before zoom/pan transform)
-    // In hitTestBlock, worldX = (screenX - W/2 - panX) / zoom
-    // So screenX = worldX * zoom + W/2 + panX
-    // With zoom=1, panX=0, W=800: screenX = center.sx + 400
-    var screenX = center.sx + 400;
-    var screenY = center.sy + 300;
-
-    var result = hitTestBlock(screenX, screenY, blocks, 1, 0, 0, 800, 600);
+    // Center of the block projects to (0, 0) in screen-relative coords.
+    // hitTestBlock: worldX = (screenX - W/2) / zoom — with zoom=1, W=800:
+    //   screenX = worldX * 1 + 400 = 400 (for worldX=0)
+    var result = hitTestBlock(400, 300, blocks, 1, 0, 0, 800, 600);
     expect(result).not.toBeNull();
-    expect(result.dir).toBeTruthy();
+    expect(result.dir.name).toBe('fake');
   });
 
   it('returns null when clicking far from any block', () => {
-    var layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    var blocks = layout.blocks;
-
-    // Click very far away
+    var blocks = [{ x: 0, y: 0, w: 40, d: 40, dir: { name: 'fake' } }];
     var result = hitTestBlock(9999, 9999, blocks, 1, 0, 0, 800, 600);
     expect(result).toBeNull();
   });
@@ -131,25 +120,13 @@ describe('hitTestBlock', () => {
 describe('handleClick with blocks', () => {
   it('calls showDirSidebar when clicking on a block ground area', () => {
     var called = false;
-    var calledWith = null;
-    globalThis.showDirSidebar = function(dir) { called = true; calledWith = dir; };
+    globalThis.showDirSidebar = function() { called = true; };
     globalThis.closeSidebar = function() {};
 
-    var layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    var buildings = sortForRendering(layout.buildings);
-    var blocks = layout.blocks;
+    var blocks = [{ x: 0, y: 0, w: 40, d: 40, dir: { name: 'fake' } }];
+    handleClick(400, 300, [], 1, 0, 0, 800, 600, blocks);
 
-    // Click at the center of the first block (in screen space)
-    var block = blocks[0];
-    var center = isoProject(block.x, block.y, 0);
-    var screenX = center.sx + 400;
-    var screenY = center.sy + 300;
-
-    handleClick(screenX, screenY, buildings, 1, 0, 0, 800, 600, blocks);
-
-    // Either a building was hit (file sidebar) or a block was hit (dir sidebar)
-    // Both are valid outcomes since buildings sit on blocks
-    expect(called || calledWith === null).toBeTruthy();
+    expect(called).toBe(true);
   });
 
   it('calls closeSidebar when clicking empty space with no block', () => {
@@ -158,12 +135,7 @@ describe('handleClick with blocks', () => {
     globalThis.showFileSidebar = function() {};
     globalThis.closeSidebar = function() { closeCalled = true; };
 
-    var layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    var buildings = sortForRendering(layout.buildings);
-    var blocks = layout.blocks;
-
-    // Click very far from any block
-    handleClick(9999, 9999, buildings, 1, 0, 0, 800, 600, blocks);
+    handleClick(9999, 9999, [], 1, 0, 0, 800, 600, []);
     expect(closeCalled).toBe(true);
   });
 });

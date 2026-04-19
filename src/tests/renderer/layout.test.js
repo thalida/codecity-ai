@@ -114,15 +114,16 @@ describe('getBuildingDimensions', () => {
 
 // ---- layoutCity ----
 describe('layoutCity', () => {
-  it('returns { blocks, buildings } arrays', () => {
+  it('returns { streets, buildings, blocks } arrays', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    expect(Array.isArray(layout.blocks)).toBe(true);
+    expect(Array.isArray(layout.streets)).toBe(true);
     expect(Array.isArray(layout.buildings)).toBe(true);
+    expect(Array.isArray(layout.blocks)).toBe(true);  // legacy field, empty
   });
 
-  it('has at least 1 block', () => {
+  it('has at least 1 street', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    expect(layout.blocks.length).toBeGreaterThanOrEqual(1);
+    expect(layout.streets.length).toBeGreaterThanOrEqual(1);
   });
 
   it('produces 3 file buildings for the test tree', () => {
@@ -130,7 +131,7 @@ describe('layoutCity', () => {
     expect(layout.buildings.length).toBe(3);
   });
 
-  it('every building has x, y, w, d, h, file, hitBox', () => {
+  it('every building has x, y, w, d, h, file, hitBox, orient', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
     for (const b of layout.buildings) {
       expect(typeof b.x).toBe('number');
@@ -140,6 +141,7 @@ describe('layoutCity', () => {
       expect(typeof b.h).toBe('number');
       expect(b.file).toBeTruthy();
       expect(b.hitBox).toBeTruthy();
+      expect(typeof b.orient).toBe('string');
     }
   });
 
@@ -160,23 +162,24 @@ describe('layoutCity', () => {
     }
   });
 
-  it('every block has x, y, w, d, label, dir', () => {
+  it('every street has x, y, length, width, orientation, label, dir', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    for (const block of layout.blocks) {
-      expect(typeof block.x).toBe('number');
-      expect(typeof block.y).toBe('number');
-      expect(typeof block.w).toBe('number');
-      expect(block.w).toBeGreaterThan(0);
-      expect(typeof block.d).toBe('number');
-      expect(block.d).toBeGreaterThan(0);
-      expect(typeof block.label).toBe('string');
-      expect(block.dir).toBeTruthy();
+    for (const s of layout.streets) {
+      expect(typeof s.x).toBe('number');
+      expect(typeof s.y).toBe('number');
+      expect(typeof s.length).toBe('number');
+      expect(s.length).toBeGreaterThan(0);
+      expect(typeof s.width).toBe('number');
+      expect(s.width).toBeGreaterThan(0);
+      expect(s.orientation === 'x' || s.orientation === 'y').toBe(true);
+      expect(typeof s.label).toBe('string');
+      expect(s.dir).toBeTruthy();
     }
   });
 
-  it('at least one block has a non-empty label', () => {
+  it('at least one street has a non-empty label', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
-    const hasLabel = layout.blocks.some(b => b.label && b.label.length > 0);
+    const hasLabel = layout.streets.some(s => s.label && s.label.length > 0);
     expect(hasLabel).toBe(true);
   });
 });

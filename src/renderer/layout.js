@@ -87,81 +87,16 @@ function getBuildingDimensions(file, config) {
 
 
 // -----------------------------------------------------------------------------
-// layoutBlock(dirNode, config) -> { buildings, blockW, blockD }
-//
-// Arranges all direct file children of a directory node in a rectangular grid
-// within a single "city block". Directory children are ignored at this level.
-// Returns buildings with positions relative to block center (0, 0).
+// Street-network layout constants
 // -----------------------------------------------------------------------------
-function layoutBlock(dirNode, config) {
-  var SPACING       = 6;   // gap between building bounding boxes (world units)
-  var BLOCK_PADDING = 6;   // empty border inside the block perimeter
-
-  // Collect only file children
-  var files = [];
-  var children = dirNode.children || [];
-  for (var i = 0; i < children.length; i++) {
-    if (children[i].type === 'file') {
-      files.push(children[i]);
-    }
-  }
-
-  // Empty block
-  if (files.length === 0) {
-    return { buildings: [], blockW: BLOCK_PADDING * 2, blockD: BLOCK_PADDING * 2 };
-  }
-
-  // Compute dimensions for every file building
-  var dims = [];
-  for (var fi = 0; fi < files.length; fi++) {
-    dims.push(getBuildingDimensions(files[fi], config));
-  }
-
-  // Find the maximum footprint to use as the uniform cell size
-  var maxW = 0;
-  var maxD = 0;
-  for (var di = 0; di < dims.length; di++) {
-    if (dims[di].w > maxW) maxW = dims[di].w;
-    if (dims[di].d > maxD) maxD = dims[di].d;
-  }
-
-  // Grid layout: aim for a square arrangement
-  var cols = Math.ceil(Math.sqrt(files.length));
-  var rows = Math.ceil(files.length / cols);
-
-  // Cell size = max building footprint + spacing
-  var cellW = maxW + SPACING;
-  var cellD = maxD + SPACING;
-
-  // Total block size
-  var blockW = cols * cellW + BLOCK_PADDING * 2;
-  var blockD = rows * cellD + BLOCK_PADDING * 2;
-
-  // Place buildings: center of each cell relative to block center
-  var buildings = [];
-  var startX = -blockW / 2 + BLOCK_PADDING + cellW / 2;
-  var startY = -blockD / 2 + BLOCK_PADDING + cellD / 2;
-
-  for (var bi = 0; bi < files.length; bi++) {
-    var col = bi % cols;
-    var row = Math.floor(bi / cols);
-
-    buildings.push({
-      x:    startX + col * cellW,
-      y:    startY + row * cellD,
-      w:    dims[bi].w,
-      d:    dims[bi].d,
-      h:    dims[bi].h,
-      file: files[bi]
-    });
-  }
-
-  return {
-    buildings: buildings,
-    blockW:    blockW,
-    blockD:    blockD
-  };
-}
+var STREET_WIDTH = 14;   // street width perpendicular to its orientation
+var CHILD_GAP    = 5;    // gap between adjacent children (files or subdirs)
+// END_PAD must be at least STREET_WIDTH/2 + buffer so that a child placed at
+// the start of THIS street doesn't cross over the PARENT street's footprint at
+// the intersection. (A child's near-edge sits at along-street position = END_PAD;
+// parent's far-edge is at STREET_WIDTH/2 from its centerline.)
+var END_PAD      = STREET_WIDTH / 2 + 3;  // 10 units
+var BLDG_OFFSET  = STREET_WIDTH / 2 + 4;  // street centerline → building near-edge
 
 
 // -----------------------------------------------------------------------------
@@ -207,222 +142,331 @@ function _computeHitBox(bx, by, w, d, h) {
 
 
 // -----------------------------------------------------------------------------
-// layoutCity(manifest, config) -> { blocks, buildings }
+// layoutCity(manifest, config) -> { streets, buildings, blocks }
 //
-// Top-level layout function. Takes the full scanner manifest and produces
-// world-space positions for every block and building.
+// Top-level layout function. Walks the directory tree and produces a STREET
+// NETWORK in world coordinates: each directory becomes a street, files line
+// the street's "near" side as buildings, and subdirectories branch off the
+// "far" side as perpendicular streets (recursively).
 //
 // Return shape:
-//   blocks:    [{ x, y, w, d, label, dir }]
-//   buildings: [{ x, y, w, d, h, color, file, hitBox: { x, y, w, h } }]
+//   streets:   [{ x, y, length, width, orientation, label, dir }]
+//   buildings: [{ x, y, w, d, h, color, file, orient, hitBox: { x, y, w, h } }]
+//   blocks:    []  (kept for backward-compat with hit-testing code; unused)
 //
 // `color` starts as null — the renderer must call getBuildingColor before drawing.
 // -----------------------------------------------------------------------------
 function layoutCity(manifest, config) {
-  var STREET_PADDING = 8;
-
   var tree = manifest.tree || manifest;
+  var result = { streets: [], buildings: [], paths: [], blocks: [] };
 
-  // ---- Collect top-level blocks -----------------------------------------------
-  var topDirs  = [];
-  var rootFiles = [];
-  var children  = tree.children || [];
+  _layoutDir(tree, config, 0, 0, 'x', result);
 
-  for (var i = 0; i < children.length; i++) {
-    if (children[i].type === 'directory') {
-      topDirs.push(children[i]);
-    } else if (children[i].type === 'file') {
-      rootFiles.push(children[i]);
-    }
+  // Compute paths from each building's door to the adjacent street
+  for (var pi = 0; pi < result.buildings.length; pi++) {
+    var path = _pathForBuilding(result.buildings[pi]);
+    if (path) result.paths.push(path);
   }
 
-  // Synthesise a fake dir node for root-level files
-  var allDirNodes = topDirs.slice();
-  if (rootFiles.length > 0) {
-    var syntheticRoot = {
-      name:           tree.name || 'root',
-      type:           'directory',
-      path:           '.',
-      children_count: rootFiles.length,
-      children:       rootFiles
-    };
-    allDirNodes.unshift(syntheticRoot);
+  // Compute screen-space hit boxes for each building
+  for (var i = 0; i < result.buildings.length; i++) {
+    var b = result.buildings[i];
+    b.hitBox = _computeHitBox(b.x, b.y, b.w, b.d, b.h);
   }
 
-  // If no directories at all, treat root as the only block
-  if (allDirNodes.length === 0) {
-    allDirNodes = [tree];
-  }
-
-  // ---- Compute per-block layouts ----------------------------------------------
-  var blockLayouts = [];
-  for (var bi = 0; bi < allDirNodes.length; bi++) {
-    var dir = allDirNodes[bi];
-    var bl  = layoutBlock(dir, config);
-
-    // Fold in nested subdirectory file buildings (one level deep)
-    var subBuildings = _collectSubdirBuildings(dir, config, bl.blockW, bl.blockD);
-
-    if (subBuildings.extraW || subBuildings.extraD) {
-      bl.blockW += subBuildings.extraW;
-      bl.blockD += subBuildings.extraD;
-    }
-
-    blockLayouts.push({
-      dir:       dir,
-      buildings: bl.buildings.concat(subBuildings.buildings),
-      blockW:    bl.blockW,
-      blockD:    bl.blockD
-    });
-  }
-
-  // ---- Determine street widths and block grid dimensions ----------------------
-  var tiers = config.street_tiers || [3, 8, 15, 30];
-  var cols = Math.ceil(Math.sqrt(allDirNodes.length));
-  var rows = Math.ceil(allDirNodes.length / cols);
-
-  var colWidths = [];
-  var rowDepths = [];
-  for (var c = 0; c < cols; c++) colWidths.push(0);
-  for (var r = 0; r < rows; r++) rowDepths.push(0);
-
-  for (var k = 0; k < blockLayouts.length; k++) {
-    var col = k % cols;
-    var row = Math.floor(k / cols);
-    if (blockLayouts[k].blockW > colWidths[col]) colWidths[col] = blockLayouts[k].blockW;
-    if (blockLayouts[k].blockD > rowDepths[row]) rowDepths[row] = blockLayouts[k].blockD;
-  }
-
-  // Use a consistent moderate street width (tier 2) so spacing is uniform
-  // between all blocks instead of varying based on the largest directory.
-  var streetW = getStreetWidth(2) + STREET_PADDING;
-
-  // Cumulative offsets
-  var colOffsets = [0];
-  for (var ci = 1; ci <= cols; ci++) {
-    colOffsets[ci] = colOffsets[ci - 1] + colWidths[ci - 1] + streetW;
-  }
-
-  var rowOffsets = [0];
-  for (var ri = 1; ri <= rows; ri++) {
-    rowOffsets[ri] = rowOffsets[ri - 1] + rowDepths[ri - 1] + streetW;
-  }
-
-  var totalWidth = colOffsets[cols];
-  var totalDepth = rowOffsets[rows];
-
-  // ---- Place blocks and translate buildings to world space --------------------
-  var outBlocks    = [];
-  var outBuildings = [];
-
-  for (var n = 0; n < blockLayouts.length; n++) {
-    var bcol = n % cols;
-    var brow = Math.floor(n / cols);
-
-    var slotCx = colOffsets[bcol] + colWidths[bcol] / 2;
-    var slotCy = rowOffsets[brow] + rowDepths[brow] / 2;
-
-    // Center city around (0, 0)
-    var worldX = slotCx - totalWidth / 2;
-    var worldY = slotCy - totalDepth / 2;
-
-    outBlocks.push({
-      x:     worldX,
-      y:     worldY,
-      w:     blockLayouts[n].blockW,
-      d:     blockLayouts[n].blockD,
-      label: blockLayouts[n].dir.name || '',
-      dir:   blockLayouts[n].dir
-    });
-
-    // Translate each building from block-local coords to world coords
-    var bldgs = blockLayouts[n].buildings;
-    for (var bj = 0; bj < bldgs.length; bj++) {
-      var b   = bldgs[bj];
-      var wx = worldX + b.x;
-      var wy = worldY + b.y;
-
-      outBuildings.push({
-        x:      wx,
-        y:      wy,
-        w:      b.w,
-        d:      b.d,
-        h:      b.h,
-        color:  null,
-        file:   b.file,
-        hitBox: _computeHitBox(wx, wy, b.w, b.d, b.h)
-      });
-    }
-  }
-
-  return {
-    blocks:    outBlocks,
-    buildings: outBuildings
-  };
+  return result;
 }
 
 
 // -----------------------------------------------------------------------------
-// _collectSubdirBuildings(dirNode, config, parentW, parentD)
-//   -> { buildings, extraW, extraD }
+// _pathForBuilding(building) -> path | null
 //
-// Collects file buildings from child directories and arranges them beside the
-// parent block.
+// Returns a thin sidewalk-colored strip connecting the building's door (on its
+// front face) to the adjacent street's sidewalk. Returns null for buildings
+// with hidden doors ('n' or 'w' orientation) — no visible door, no visible path.
 // -----------------------------------------------------------------------------
-function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
-  var SUB_SPACING = 6;
+var _PATH_LENGTH = BLDG_OFFSET - STREET_WIDTH / 2;  // distance from building face to street edge
+var _PATH_WIDTH  = 3;                                // narrow walkway
 
-  var children = dirNode.children || [];
-  var subDirs  = [];
+function _pathForBuilding(b) {
+  if (b.orient === 's') {
+    // Door on +y face → path extends from building's +y edge northward to street
+    return {
+      x: b.x,
+      y: b.y + b.d / 2 + _PATH_LENGTH / 2,
+      w: _PATH_WIDTH,
+      d: _PATH_LENGTH
+    };
+  }
+  if (b.orient === 'e') {
+    // Door on +x face → path extends from building's +x edge eastward to street
+    return {
+      x: b.x + b.w / 2 + _PATH_LENGTH / 2,
+      y: b.y,
+      w: _PATH_LENGTH,
+      d: _PATH_WIDTH
+    };
+  }
+  if (b.orient === 'n') {
+    // Door on -y face (hidden) → path extends southward to street behind/under building
+    return {
+      x: b.x,
+      y: b.y - b.d / 2 - _PATH_LENGTH / 2,
+      w: _PATH_WIDTH,
+      d: _PATH_LENGTH
+    };
+  }
+  if (b.orient === 'w') {
+    // Door on -x face (hidden) → path extends westward
+    return {
+      x: b.x - b.w / 2 - _PATH_LENGTH / 2,
+      y: b.y,
+      w: _PATH_LENGTH,
+      d: _PATH_WIDTH
+    };
+  }
+  return null;
+}
+
+
+// -----------------------------------------------------------------------------
+// _layoutDir(dir, config, originX, originY, orientation, result)
+//
+// Recursively places a directory and its descendants into `result` (in WORLD
+// coordinates).
+//
+//   originX, originY — world position of this street's START (the end nearest
+//                      the parent street; for the root, this is (0, 0))
+//   orientation       — 'x' or 'y'; the axis the street extends along
+//
+// Algorithm:
+//   1. Sort all children (files + subdirs) alphabetically by name.
+//   2. Pre-compute each subdir's layout in its own local frame and measure
+//      its bounding box (so we can space siblings correctly).
+//   3. Walk children in order, placing each one along the street with a
+//      single shared cursor. Alternate sides (primary/secondary) as we go:
+//        - X-street primary = SOUTH, secondary = NORTH
+//        - Y-street primary = WEST,  secondary = EAST
+//      Subdirs on the secondary side branch in the +perp direction (default);
+//      subdirs on the primary side branch in the -perp direction (we mirror
+//      their local layout by negating the perp axis).
+//
+// Buildings are sized so their LONG side (dim.w) runs along the street.
+// Door faces back toward the street when visible (orient='s' or 'e'); when
+// the file is on the secondary side the door is on a hidden face ('n' or 'w').
+// -----------------------------------------------------------------------------
+function _layoutDir(dir, config, originX, originY, orientation, result) {
+  // ---- Sort children alphabetically (files + dirs intermingled) -----------
+  var children = (dir.children || [])
+    .filter(function (c) { return c.type === 'file' || c.type === 'directory'; })
+    .slice()
+    .sort(function (a, b) {
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+  var subOrient = (orientation === 'x') ? 'y' : 'x';
+
+  // ---- Pre-compute each subdir's layout in its own local frame ------------
+  // We need each subdir's bbox BEFORE positioning it, so siblings can be
+  // packed without overlap. Local layout has subdir's street at (0,0) extending
+  // in +subOrient.
+  var subLayouts = {};
   for (var i = 0; i < children.length; i++) {
     if (children[i].type === 'directory') {
-      subDirs.push(children[i]);
+      var localResult = { streets: [], buildings: [] };
+      _layoutDir(children[i], config, 0, 0, subOrient, localResult);
+      subLayouts[i] = {
+        result: localResult,
+        bbox: _computeBbox(localResult)
+      };
     }
   }
 
-  if (subDirs.length === 0) {
-    return { buildings: [], extraW: 0, extraD: 0 };
-  }
+  // ---- Walk children in alphabetical order, alternating sides -------------
+  var cursor = END_PAD;
+  var fileBuildings = [];
 
-  var allBuildings = [];
-  var cursorX = parentW / 2 + SUB_SPACING;
-  var maxSubD  = 0;
+  for (var ci = 0; ci < children.length; ci++) {
+    var child = children[ci];
+    var sideIdx = ci % 2;   // 0 = primary side (south/west), 1 = secondary (north/east)
 
-  for (var si = 0; si < subDirs.length; si++) {
-    var sub = layoutBlock(subDirs[si], config);
+    if (child.type === 'file') {
+      var dim = getBuildingDimensions(child, config);
+      var alongStreet = dim.w;   // long side runs along the street
+      var perpStreet  = dim.d;
 
-    if (sub.buildings.length === 0) continue;
+      cursor += alongStreet / 2;
 
-    var subCx = cursorX + sub.blockW / 2;
-    var subCy = 0;
+      var bx, by, bldgW, bldgD, orient;
+      if (orientation === 'x') {
+        bx = originX + cursor;
+        if (sideIdx === 0) {
+          by = originY - BLDG_OFFSET - perpStreet / 2;   // south
+          orient = 's';
+        } else {
+          by = originY + BLDG_OFFSET + perpStreet / 2;   // north
+          orient = 'n';                                   // door hidden
+        }
+        bldgW = alongStreet;   // world-X
+        bldgD = perpStreet;    // world-Y
+      } else {
+        by = originY + cursor;
+        if (sideIdx === 0) {
+          bx = originX - BLDG_OFFSET - perpStreet / 2;   // west
+          orient = 'e';
+        } else {
+          bx = originX + BLDG_OFFSET + perpStreet / 2;   // east
+          orient = 'w';                                   // door hidden
+        }
+        // Y-street: long side runs along world-Y, short side along world-X
+        bldgW = perpStreet;
+        bldgD = alongStreet;
+      }
 
-    for (var bk = 0; bk < sub.buildings.length; bk++) {
-      var b = sub.buildings[bk];
-      allBuildings.push({
-        x:    subCx + b.x,
-        y:    subCy + b.y,
-        w:    b.w,
-        d:    b.d,
-        h:    b.h,
-        file: b.file
+      fileBuildings.push({
+        x: bx, y: by,
+        w: bldgW, d: bldgD, h: dim.h,
+        file: child,
+        color: null,
+        orient: orient
       });
-    }
 
-    cursorX += sub.blockW + SUB_SPACING;
-    if (sub.blockD > maxSubD) maxSubD = sub.blockD;
+      cursor += alongStreet / 2 + CHILD_GAP;
+    } else {
+      // ---- Subdir branch ----
+      var sl = subLayouts[ci];
+
+      // Subdir's "width along parent's axis" = its bbox extent perpendicular
+      // to subdir's own street.
+      var widthLow, widthHigh;
+      if (orientation === 'x') {
+        widthLow  = sl.bbox.minX;
+        widthHigh = sl.bbox.maxX;
+      } else {
+        widthLow  = sl.bbox.minY;
+        widthHigh = sl.bbox.maxY;
+      }
+
+      // Position so subdir's left (low) edge lands at the cursor
+      var subAnchorOffset = cursor + (-widthLow);
+
+      // Determine direction the subdir's street should extend.
+      // Primary side (sideIdx=0) extends in the NEGATIVE perp direction;
+      // secondary (sideIdx=1) extends in the POSITIVE perp direction (default).
+      // We mirror the subdir's local layout by negating the perp axis when
+      // it's on the primary side. (Bbox extents along parent's axis are
+      // unaffected by this perp negation, so positioning logic stays the same.)
+      var negateY = (orientation === 'x' && sideIdx === 0);
+      var negateX = (orientation === 'y' && sideIdx === 0);
+
+      var subAnchorX, subAnchorY;
+      if (orientation === 'x') {
+        subAnchorX = originX + subAnchorOffset;
+        subAnchorY = originY;   // overlap parent's centerline
+      } else {
+        subAnchorX = originX;
+        subAnchorY = originY + subAnchorOffset;
+      }
+
+      for (var ssi = 0; ssi < sl.result.streets.length; ssi++) {
+        var s = sl.result.streets[ssi];
+        result.streets.push({
+          x: (negateX ? -s.x : s.x) + subAnchorX,
+          y: (negateY ? -s.y : s.y) + subAnchorY,
+          length: s.length,
+          width: s.width,
+          orientation: s.orientation,
+          label: s.label,
+          dir: s.dir
+        });
+      }
+      for (var sbi = 0; sbi < sl.result.buildings.length; sbi++) {
+        var b = sl.result.buildings[sbi];
+        result.buildings.push({
+          x: (negateX ? -b.x : b.x) + subAnchorX,
+          y: (negateY ? -b.y : b.y) + subAnchorY,
+          w: b.w, d: b.d, h: b.h,
+          file: b.file,
+          color: b.color,
+          orient: b.orient
+        });
+      }
+
+      cursor += (widthHigh - widthLow) + CHILD_GAP;
+    }
+  }
+  if (children.length > 0) cursor -= CHILD_GAP;
+  cursor += END_PAD;
+
+  // ---- Compute street length and add street ------------------------------
+  var streetLength = Math.max(cursor, END_PAD * 2);
+
+  var streetCenterX = originX;
+  var streetCenterY = originY;
+  if (orientation === 'x') {
+    streetCenterX = originX + streetLength / 2;
+  } else {
+    streetCenterY = originY + streetLength / 2;
   }
 
-  // Ensure the parent block expands enough to fully contain all sub-directory
-  // buildings. Add padding so buildings don't sit right at the edge.
-  var SUB_PADDING = 6;
-  var extraW = (allBuildings.length > 0) ? (cursorX - parentW / 2 + SUB_PADDING) : 0;
-  var extraD = (maxSubD > parentD) ? (maxSubD - parentD + SUB_PADDING) : 0;
+  result.streets.push({
+    x: streetCenterX,
+    y: streetCenterY,
+    length: streetLength,
+    width: STREET_WIDTH,
+    orientation: orientation,
+    label: dir.name || '',
+    dir: dir
+  });
 
-  return {
-    buildings: allBuildings,
-    extraW:    extraW,
-    extraD:    extraD
-  };
+  for (var bi2 = 0; bi2 < fileBuildings.length; bi2++) {
+    result.buildings.push(fileBuildings[bi2]);
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// _computeBbox(layout) -> { minX, maxX, minY, maxY }
+//
+// Computes the axis-aligned bounding box (in world or local coords, depending
+// on what the layout is in) covering all streets and buildings.
+// -----------------------------------------------------------------------------
+function _computeBbox(layout) {
+  var minX = Infinity, maxX = -Infinity;
+  var minY = Infinity, maxY = -Infinity;
+
+  for (var i = 0; i < layout.streets.length; i++) {
+    var s = layout.streets[i];
+    var halfL = s.length / 2;
+    var halfW = s.width / 2;
+    var x1, x2, y1, y2;
+    if (s.orientation === 'x') {
+      x1 = s.x - halfL; x2 = s.x + halfL;
+      y1 = s.y - halfW; y2 = s.y + halfW;
+    } else {
+      x1 = s.x - halfW; x2 = s.x + halfW;
+      y1 = s.y - halfL; y2 = s.y + halfL;
+    }
+    if (x1 < minX) minX = x1;
+    if (x2 > maxX) maxX = x2;
+    if (y1 < minY) minY = y1;
+    if (y2 > maxY) maxY = y2;
+  }
+
+  for (var j = 0; j < layout.buildings.length; j++) {
+    var b = layout.buildings[j];
+    var bx1 = b.x - b.w / 2, bx2 = b.x + b.w / 2;
+    var by1 = b.y - b.d / 2, by2 = b.y + b.d / 2;
+    if (bx1 < minX) minX = bx1;
+    if (bx2 > maxX) maxX = bx2;
+    if (by1 < minY) minY = by1;
+    if (by2 > maxY) maxY = by2;
+  }
+
+  if (minX === Infinity) {
+    return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  }
+  return { minX: minX, maxX: maxX, minY: minY, maxY: maxY };
 }
 
 

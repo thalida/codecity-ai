@@ -99,7 +99,7 @@ function componentsToHsl(h, s, l) {
 // each floor the front wall, right wall, slab faces, top (only on the topmost
 // floor), windows, and door are drawn in z-order so nothing is overdrawn.
 // -----------------------------------------------------------------------------
-function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
+function drawBuilding(ctx, cx, cy, w, d, h, hslColor, orientation) {
   var hw = w / 2;
   var hd = d / 2;
 
@@ -113,6 +113,17 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   var floors = Math.max(1, Math.round(h / FLOOR_HEIGHT));
   var slabT  = 1;                      // ceiling slab thickness per floor
   var wallH  = FLOOR_HEIGHT - slabT;   // wall height per floor
+
+  // Orientation determines which world face has the entrance door.
+  //   's' (south, default) — door on +y face (visible on screen-LEFT)
+  //   'e' (east)           — door on +x face (visible on screen-RIGHT)
+  //   'n' (north)          — door on -y face (HIDDEN from this iso angle)
+  //   'w' (west)           — door on -x face (HIDDEN from this iso angle)
+  // The face with the door also skips its bottom-floor window row.
+  orientation = orientation || 's';
+  var doorFace = (orientation === 's') ? 'front'
+              : (orientation === 'e') ? 'right'
+              : 'none';
 
   // Face & accent colors — same hue shifts as before for sun/sky lighting.
   var colorTop   = hslColor;
@@ -197,29 +208,40 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
     }
 
     // ---- Windows: one row per floor ----
-    // Right face: every floor.
-    _drawFaceWindows(ctx, cx, cy, rightCols, 1,
-      wprf, wprb, wprft, wprbt, 0.40, 0.50, winColor);
-    // Front face: every floor EXCEPT the bottom (which has the door).
-    if (fi > 0) {
+    // The face with the door skips its bottom-floor row (door takes that space).
+    var skipFront = (fi === 0 && doorFace === 'front');
+    var skipRight = (fi === 0 && doorFace === 'right');
+
+    if (!skipFront) {
       _drawFaceWindows(ctx, cx, cy, frontCols, 1,
         wprb, wplb, wprbt, wplbt, 0.40, 0.50, winColor);
     }
+    if (!skipRight) {
+      _drawFaceWindows(ctx, cx, cy, rightCols, 1,
+        wprf, wprb, wprft, wprbt, 0.40, 0.50, winColor);
+    }
 
-    // ---- Door: bottom floor only, on the front wall ----
-    if (fi === 0 && w > 2) {
-      var doorWFrac = Math.min(0.30, 3.5 / w);
-      var doorHFrac = 0.65;  // tops out just below the window row (which ends at v=0.70)
+    // ---- Door: bottom floor only, on the door face if visible ----
+    if (fi === 0 && doorFace !== 'none') {
+      var dBl, dBr, dTl, dTr, doorWFrac;
+      if (doorFace === 'front') {
+        // Front face — U=0 at wprb (screen-LEFT), U=1 at wplb (screen-RIGHT).
+        dBl = wprb; dBr = wplb; dTl = wprbt; dTr = wplbt;
+        doorWFrac = Math.min(0.30, 3.5 / w);
+      } else {
+        // Right face — U=0 at wprb (screen-LEFT), U=1 at wprf (screen-RIGHT).
+        dBl = wprb; dBr = wprf; dTl = wprbt; dTr = wprft;
+        doorWFrac = Math.min(0.30, 3.5 / d);
+      }
+      var doorHFrac = 0.65;
       var doorU0 = 0.5 - doorWFrac / 2;
       var doorU1 = 0.5 + doorWFrac / 2;
 
-      // Bilinear across the bottom floor's front face.
-      // U=0 at wprb (screen-LEFT corner), U=1 at wplb (screen-RIGHT).
       var doorPt = function (u, v) {
-        var bx   = wprb.sx  + u * (wplb.sx  - wprb.sx);
-        var by   = wprb.sy  + u * (wplb.sy  - wprb.sy);
-        var topx = wprbt.sx + u * (wplbt.sx - wprbt.sx);
-        var topy = wprbt.sy + u * (wplbt.sy - wprbt.sy);
+        var bx   = dBl.sx + u * (dBr.sx - dBl.sx);
+        var by   = dBl.sy + u * (dBr.sy - dBl.sy);
+        var topx = dTl.sx + u * (dTr.sx - dTl.sx);
+        var topy = dTl.sy + u * (dTr.sy - dTl.sy);
         return {
           sx: cx + bx + v * (topx - bx),
           sy: cy + by + v * (topy - by)
@@ -418,6 +440,94 @@ function drawGround(ctx, x, y, w, d, fill, stroke) {
 
 
 // -----------------------------------------------------------------------------
+// Street rendering
+// -----------------------------------------------------------------------------
+// A street is a flat tile in the city representing a directory. Visually it
+// has two layers: an outer SIDEWALK rectangle (the full footprint) and an
+// inner ASPHALT strip running along its length.
+//
+// Street opts:
+//   x, y        — world-space center of the street
+//   length      — long-axis extent (along orientation)
+//   width       — short-axis extent (perpendicular to orientation)
+//   orientation — 'x' (default) or 'y' for which axis the street runs along
+//   asphaltFrac — fraction of width occupied by asphalt (default 0.6)
+//
+// IMPORTANT: when multiple streets meet at intersections, render them with
+// drawStreets() so all sidewalks paint first and all asphalts second. That
+// way each street's asphalt cuts cleanly through the others' sidewalks at
+// the intersection, leaving a continuous road network with sidewalk only
+// in the four corner pockets.
+// -----------------------------------------------------------------------------
+
+var STREET_COLORS = {
+  asphalt:  '#1a1d28',
+  sidewalk: '#2a3050'
+};
+
+function _streetRects(opts) {
+  var orientation = opts.orientation || 'x';
+  var asphaltFrac = opts.asphaltFrac != null ? opts.asphaltFrac : 0.6;
+  var length = opts.length, width = opts.width;
+  if (orientation === 'x') {
+    return {
+      swW: length, swD: width,
+      asW: length, asD: width * asphaltFrac
+    };
+  }
+  return {
+    swW: width,  swD: length,
+    asW: width * asphaltFrac, asD: length
+  };
+}
+
+function drawStreetSidewalk(ctx, opts) {
+  var r = _streetRects(opts);
+  var p = isoProject(opts.x || 0, opts.y || 0, 0);
+  drawGround(ctx, p.sx, p.sy, r.swW, r.swD, STREET_COLORS.sidewalk, null);
+}
+
+function drawStreetAsphalt(ctx, opts) {
+  var r = _streetRects(opts);
+  var p = isoProject(opts.x || 0, opts.y || 0, 0);
+  drawGround(ctx, p.sx, p.sy, r.asW, r.asD, STREET_COLORS.asphalt, null);
+}
+
+// Render an entire street network so intersections look clean: sidewalks
+// overlap into a single connected shape, then asphalts form a continuous
+// road network on top.
+function drawStreets(ctx, streets) {
+  for (var i = 0; i < streets.length; i++) drawStreetSidewalk(ctx, streets[i]);
+  for (var j = 0; j < streets.length; j++) drawStreetAsphalt(ctx, streets[j]);
+}
+
+// Single-street convenience wrapper. For a single isolated street this looks
+// the same as calling the sidewalk + asphalt passes; use drawStreets() if you
+// have any intersections.
+function drawStreet(ctx, opts) {
+  drawStreets(ctx, [opts]);
+}
+
+// -----------------------------------------------------------------------------
+// drawPath(ctx, path) / drawPaths(ctx, paths)
+//
+// A "path" is a thin sidewalk-colored strip on the ground connecting a
+// building's door to the adjacent street. Paths use the sidewalk color so
+// they visually extend the street's sidewalk all the way up to the building.
+//
+// path = { x, y, w, d } — same shape as a ground rectangle
+// -----------------------------------------------------------------------------
+function drawPath(ctx, path) {
+  var p = isoProject(path.x, path.y, 0);
+  drawGround(ctx, p.sx, p.sy, path.w, path.d, STREET_COLORS.sidewalk, null);
+}
+
+function drawPaths(ctx, paths) {
+  for (var i = 0; i < paths.length; i++) drawPath(ctx, paths[i]);
+}
+
+
+// -----------------------------------------------------------------------------
 // drawLabel(ctx, x, y, text, color)
 //
 // Draws a text label at the given screen-space position, suitable for rendering
@@ -489,6 +599,13 @@ if (typeof module !== 'undefined' && module.exports) {
     drawBuilding,
     drawGround,
     drawLabel,
+    drawStreet,
+    drawStreets,
+    drawStreetSidewalk,
+    drawStreetAsphalt,
+    drawPath,
+    drawPaths,
+    STREET_COLORS,
     setupCanvas,
   };
 }
