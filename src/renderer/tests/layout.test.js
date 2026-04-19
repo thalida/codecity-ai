@@ -7,7 +7,7 @@ const {
   getBuildingDimensions,
   layoutCity,
   sortForRendering,
-} = require('../../renderer/layout.js');
+} = require('../layout.js');
 
 const TEST_CONFIG = {
   street_tiers: [3, 8, 15, 30],

@@ -5,8 +5,11 @@
 .superpowers/
 docs/superpowers/
 
-# Generated test fixtures (run src/tests/fixtures/setup.sh to build)
-src/tests/fixtures/sample-repo/
+# Generated test fixtures
+#   scanner: run src/scanner/tests/fixtures/setup.sh to rebuild
+#   e2e:     Playwright globalSetup writes test-city.html under .generated/
+src/scanner/tests/fixtures/sample-repo/
+src/renderer/tests/e2e/.generated/
 
 # OS
 .DS_Store

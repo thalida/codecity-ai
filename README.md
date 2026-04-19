@@ -79,39 +79,63 @@ Place the plugin directory where Gemini can resolve it as a tool and reference `
 
 ```text
 src/
-  config/defaults.json      # default palette and building size config
-  scanner/scan.sh           # walks a directory tree, outputs JSON manifest
-  renderer/
-    engine.js               # isometric render loop
-    colors.js               # HSL color mapping from file metadata
-    layout.js               # street and building placement
-    sidebar.js              # file info panel
-    interactions.js         # pan, zoom, click; exports startRenderLoop()
-    styles.css              # canvas and sidebar styles
-  skills/codecity/SKILL.md  # agent instructions (the plugin entry point)
-
-tests/
-  fixtures/
-    setup.sh                # creates a deterministic sample git repo
-    sample-repo/            # generated — not committed
+  config/defaults.json           # default palette and building size config
   scanner/
-    test-scan.sh            # runs scan.sh against the sample repo
+    scan.sh                      # walks a directory tree, outputs JSON manifest
+    tests/
+      test-scan.sh               # integration tests for scan.sh
+      fixtures/
+        setup.sh                 # creates a deterministic sample git repo
+        sample-repo/             # generated, not committed
   renderer/
-    test-city.html          # static renderer test page
-    test-engine.html        # isolated engine test page
+    engine.js                    # Three.js scene builder (buildings/streets/gem)
+    colors.js                    # HSL color mapping from file metadata
+    layout.js                    # street and building placement
+    sidebar.js                   # file info panel
+    tree.js                      # left tree sidebar
+    interactions.js              # OrbitControls + raycaster + render loop
+    styles.css                   # page and sidebar styles
+    tests/
+      *.test.js                  # vitest unit tests (colors, layout, tree)
+      dev-harness.html           # open directly for fast renderer iteration
+      e2e/
+        city.spec.js             # Playwright tests over the real built HTML
+        global-setup.js          # pre-builds test-city.html via build.sh
+        fixtures/manifest.json   # committed scanner output used by e2e
+  skills/codecity/
+    SKILL.md                     # agent instructions (plugin entry point)
+    template.html                # HTML shell with placeholders
+    build.sh                     # fills template + writes self-contained HTML
 ```
 
-**Run the scanner tests:**
+**Run all tests:**
 
 ```bash
-bash tests/fixtures/setup.sh
-bash tests/scanner/test-scan.sh
+npm test                         # vitest unit + playwright e2e
 ```
 
-**Test the renderer:**
+**Run scanner tests directly:**
 
 ```bash
-open tests/renderer/test-city.html
+bash src/scanner/tests/fixtures/setup.sh
+bash src/scanner/tests/test-scan.sh
+```
+
+**Iterate on the renderer in a browser:**
+
+```bash
+open src/renderer/tests/dev-harness.html   # inline sample, no build step
+```
+
+**Build an HTML manually:**
+
+```bash
+bash src/scanner/scan.sh --root <path> > manifest.json
+bash src/skills/codecity/build.sh \
+  --project NAME \
+  --manifest manifest.json \
+  --config src/config/defaults.json \
+  --output out.html
 ```
 
 ## License

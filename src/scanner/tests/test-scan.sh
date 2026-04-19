@@ -2,10 +2,10 @@
 # test-scan.sh — Integration tests for src/scanner/scan.sh
 #
 # Run from any directory:
-#   bash src/tests/scanner/test-scan.sh
+#   bash src/scanner/tests/test-scan.sh
 #
 # Prerequisites:
-#   - bash src/tests/fixtures/setup.sh must have been run first
+#   - bash src/scanner/tests/fixtures/setup.sh must have been run first
 #   - jq must be available on PATH
 
 set -euo pipefail
@@ -13,7 +13,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SCAN="$REPO_ROOT/src/scanner/scan.sh"
-FIXTURE="$REPO_ROOT/src/tests/fixtures/sample-repo"
+FIXTURE="$SCRIPT_DIR/fixtures/sample-repo"
 
 PASS=0
 FAIL=0

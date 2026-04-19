@@ -1,8 +1,14 @@
-// city.spec.js — Playwright E2E tests for the CodeCity renderer
+// city.spec.js — Playwright E2E tests for the CodeCity renderer.
+//
+// The test page (test-city.html) is built by global-setup.js from the
+// committed manifest fixture + defaults.json, using the real build.sh
+// that the skill ships with. That way e2e tests the actual production
+// pipeline, and no hand-maintained HTML harness can drift out of sync
+// with the renderer sources.
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 
-const testCityPath = path.resolve(__dirname, '../renderer/test-city.html');
+const testCityPath = path.resolve(__dirname, '.generated/test-city.html');
 
 test.describe('CodeCity E2E', () => {
   test.beforeEach(async ({ page }) => {

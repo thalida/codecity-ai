@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeCity — dev harness</title>
+  <!-- Manual dev harness. Loads renderer sources directly (no build step).
+       Edit a file in src/renderer/, reload this page, see the change.
+       For full pipeline testing run Playwright, which builds test-city.html
+       via build.sh against the committed fixture manifest. -->
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    #city { display: block; width: 100%; height: 100%; }
+    #dev-banner {
+      position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+      background: rgba(10, 11, 16, 0.8);
+      color: #8a9eff; border: 1px solid rgba(108, 138, 255, 0.35);
+      padding: 4px 10px; border-radius: 100px;
+      font: 11px 'SF Mono', monospace; z-index: 1000; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="dev-banner">dev harness — edit src/renderer/*.js and reload</div>
+  <div id="tree-sidebar"></div>
+  <canvas id="city"></canvas>
+  <div id="sidebar"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three":         "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.min.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Renderer sources, loaded directly (same order as build.sh concatenates). -->
+  <script src="../engine.js"></script>
+  <script src="../colors.js"></script>
+  <script src="../layout.js"></script>
+  <script src="../sidebar.js"></script>
+  <script src="../tree.js"></script>
+  <script src="../interactions.js"></script>
+
+  <script>
+    // Tiny inline manifest — a few dirs + files to exercise the layout
+    // (primary/secondary sides, nested subdirs, alphabetical ordering) while
+    // staying small enough to read at a glance. Dates are arbitrary but
+    // deterministic so colors are stable across reloads.
+    const MANIFEST = {
+      root: "dev-harness",
+      tree: {
+        name: "dev-harness", type: "directory", path: ".",
+        children_count: 4, children_file_count: 2, children_dir_count: 2,
+        descendants_count: 9, descendants_file_count: 6, descendants_dir_count: 3,
+        descendants_size: 10000,
+        children: [
+          { name: "README.md", type: "file", path: "README.md",
+            extension: ".md", size: 500, lines: 30,
+            created: "2024-01-10T09:00:00Z", modified: "2024-03-10T09:00:00Z" },
+          { name: "package.json", type: "file", path: "package.json",
+            extension: ".json", size: 800, lines: 40,
+            created: "2024-01-10T09:00:00Z", modified: "2024-02-20T12:00:00Z" },
+          { name: "src", type: "directory", path: "src",
+            children_count: 3, children_file_count: 2, children_dir_count: 1,
+            descendants_count: 5, descendants_file_count: 4, descendants_dir_count: 1,
+            descendants_size: 6000,
+            children: [
+              { name: "index.ts", type: "file", path: "src/index.ts",
+                extension: ".ts", size: 1200, lines: 60,
+                created: "2024-01-15T10:00:00Z", modified: "2024-03-20T10:00:00Z" },
+              { name: "utils.ts", type: "file", path: "src/utils.ts",
+                extension: ".ts", size: 600, lines: 25,
+                created: "2024-01-20T11:00:00Z", modified: "2024-02-14T12:00:00Z" },
+              { name: "components", type: "directory", path: "src/components",
+                children_count: 2, children_file_count: 2, children_dir_count: 0,
+                descendants_count: 2, descendants_file_count: 2, descendants_dir_count: 0,
+                descendants_size: 2500,
+                children: [
+                  { name: "Button.ts", type: "file", path: "src/components/Button.ts",
+                    extension: ".ts", size: 700, lines: 30,
+                    created: "2024-02-01T10:00:00Z", modified: "2024-03-01T10:00:00Z" },
+                  { name: "Header.ts", type: "file", path: "src/components/Header.ts",
+                    extension: ".ts", size: 1800, lines: 80,
+                    created: "2024-01-25T10:00:00Z", modified: "2024-03-18T10:00:00Z" }
+                ]
+              }
+            ]
+          },
+          { name: "tests", type: "directory", path: "tests",
+            children_count: 1, children_file_count: 1, children_dir_count: 0,
+            descendants_count: 1, descendants_file_count: 1, descendants_dir_count: 0,
+            descendants_size: 1500,
+            children: [
+              { name: "index.test.ts", type: "file", path: "tests/index.test.ts",
+                extension: ".ts", size: 1500, lines: 50,
+                created: "2024-01-20T10:00:00Z", modified: "2024-03-22T10:00:00Z" }
+            ]
+          }
+        ]
+      }
+    };
+
+    const CONFIG = {
+      street_tiers: [3, 8, 15, 30],
+      building: { min_height: 4, max_height: 120, min_width: 6, max_width: 40 },
+      saturation: { min: 20, max: 100 },
+      lightness: { min: 25, max: 70 },
+      palette: {
+        ".js": 220, ".ts": 215, ".jsx": 225, ".tsx": 210,
+        ".py": 15, ".css": 150, ".html": 175, ".json": 50,
+        ".md": 275, ".sh": 35, ".go": 185, ".rs": 5
+      }
+    };
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    window.THREE = THREE;
+    window.OrbitControls = OrbitControls;
+    startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
+  </script>
+</body>
+</html>

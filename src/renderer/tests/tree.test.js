@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 const {
   buildTree,
   showTreeSidebar,
-} = require('../../renderer/tree.js');
+} = require('../tree.js');
 
 const TEST_TREE = {
   name: "project", type: "directory", path: ".",

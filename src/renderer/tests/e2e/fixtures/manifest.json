@@ -1,0 +1,260 @@
+{
+  "root": "sample-repo",
+  "scanned_at": "2026-04-19T19:01:06Z",
+  "depth": null,
+  "tree": {
+    "name": "sample-repo",
+    "type": "directory",
+    "path": ".",
+    "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo",
+    "children_count": 6,
+    "children_file_count": 3,
+    "children_dir_count": 3,
+    "descendants_count": 13,
+    "descendants_file_count": 9,
+    "descendants_dir_count": 4,
+    "descendants_size": 6981,
+    "children": [
+      {
+        "name": ".gitignore",
+        "type": "file",
+        "path": ".gitignore",
+        "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/.gitignore",
+        "extension": "",
+        "size": 26,
+        "lines": 3,
+        "binary": false,
+        "created": "2026-04-18T23:54:35Z",
+        "modified": "2026-04-18T23:54:35Z",
+        "git": {
+          "created": "2024-01-10T09:00:00Z",
+          "modified": "2024-01-10T09:00:00Z",
+          "commits": 1,
+          "contributors": [
+            "Test Fixture Bot"
+          ]
+        }
+      },
+      {
+        "name": "logo.png",
+        "type": "file",
+        "path": "logo.png",
+        "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/logo.png",
+        "extension": ".png",
+        "size": 67,
+        "lines": 2,
+        "binary": true,
+        "created": "2026-04-18T23:54:38Z",
+        "modified": "2026-04-18T23:54:38Z",
+        "git": {
+          "created": "2024-03-22T14:30:00Z",
+          "modified": "2024-03-22T14:30:00Z",
+          "commits": 1,
+          "contributors": [
+            "Test Fixture Bot"
+          ]
+        }
+      },
+      {
+        "name": "package.json",
+        "type": "file",
+        "path": "package.json",
+        "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/package.json",
+        "extension": ".json",
+        "size": 216,
+        "lines": 10,
+        "binary": false,
+        "created": "2026-04-18T23:54:35Z",
+        "modified": "2026-04-18T23:54:35Z",
+        "git": {
+          "created": "2024-01-10T09:00:00Z",
+          "modified": "2024-01-10T09:00:00Z",
+          "commits": 1,
+          "contributors": [
+            "Test Fixture Bot"
+          ]
+        }
+      },
+      {
+        "name": "docs",
+        "type": "directory",
+        "path": "docs",
+        "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/docs",
+        "children_count": 1,
+        "children_file_count": 1,
+        "children_dir_count": 0,
+        "descendants_count": 1,
+        "descendants_file_count": 1,
+        "descendants_dir_count": 0,
+        "descendants_size": 267,
+        "children": [
+          {
+            "name": "README.md",
+            "type": "file",
+            "path": "docs/README.md",
+            "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/docs/README.md",
+            "extension": ".md",
+            "size": 267,
+            "lines": 15,
+            "binary": false,
+            "created": "2026-04-18T23:54:35Z",
+            "modified": "2026-04-18T23:54:35Z",
+            "git": {
+              "created": "2024-01-10T09:00:00Z",
+              "modified": "2024-01-10T09:00:00Z",
+              "commits": 1,
+              "contributors": [
+                "Test Fixture Bot"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "src",
+        "type": "directory",
+        "path": "src",
+        "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/src",
+        "children_count": 3,
+        "children_file_count": 2,
+        "children_dir_count": 1,
+        "descendants_count": 5,
+        "descendants_file_count": 4,
+        "descendants_dir_count": 1,
+        "descendants_size": 4311,
+        "children": [
+          {
+            "name": "index.ts",
+            "type": "file",
+            "path": "src/index.ts",
+            "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/src/index.ts",
+            "extension": ".ts",
+            "size": 1336,
+            "lines": 50,
+            "binary": false,
+            "created": "2026-04-18T23:54:38Z",
+            "modified": "2026-04-18T23:54:38Z",
+            "git": {
+              "created": "2024-03-22T14:30:00Z",
+              "modified": "2024-03-22T14:30:00Z",
+              "commits": 1,
+              "contributors": [
+                "Test Fixture Bot"
+              ]
+            }
+          },
+          {
+            "name": "utils.ts",
+            "type": "file",
+            "path": "src/utils.ts",
+            "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/src/utils.ts",
+            "extension": ".ts",
+            "size": 438,
+            "lines": 20,
+            "binary": false,
+            "created": "2026-04-18T23:54:37Z",
+            "modified": "2026-04-18T23:54:37Z",
+            "git": {
+              "created": "2024-03-22T14:30:00Z",
+              "modified": "2024-03-22T14:30:00Z",
+              "commits": 1,
+              "contributors": [
+                "Test Fixture Bot"
+              ]
+            }
+          },
+          {
+            "name": "components",
+            "type": "directory",
+            "path": "src/components",
+            "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/src/components",
+            "children_count": 2,
+            "children_file_count": 2,
+            "children_dir_count": 0,
+            "descendants_count": 2,
+            "descendants_file_count": 2,
+            "descendants_dir_count": 0,
+            "descendants_size": 2537,
+            "children": [
+              {
+                "name": "Button.ts",
+                "type": "file",
+                "path": "src/components/Button.ts",
+                "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/src/components/Button.ts",
+                "extension": ".ts",
+                "size": 745,
+                "lines": 30,
+                "binary": false,
+                "created": "2026-04-18T23:54:38Z",
+                "modified": "2026-04-18T23:54:38Z",
+                "git": {
+                  "created": "2024-03-22T14:30:00Z",
+                  "modified": "2024-03-22T14:30:00Z",
+                  "commits": 1,
+                  "contributors": [
+                    "Test Fixture Bot"
+                  ]
+                }
+              },
+              {
+                "name": "Header.ts",
+                "type": "file",
+                "path": "src/components/Header.ts",
+                "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/src/components/Header.ts",
+                "extension": ".ts",
+                "size": 1792,
+                "lines": 80,
+                "binary": false,
+                "created": "2026-04-18T23:54:38Z",
+                "modified": "2026-04-18T23:54:38Z",
+                "git": {
+                  "created": "2024-03-22T14:30:00Z",
+                  "modified": "2024-03-22T14:30:00Z",
+                  "commits": 1,
+                  "contributors": [
+                    "Test Fixture Bot"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "tests",
+        "type": "directory",
+        "path": "tests",
+        "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/tests",
+        "children_count": 1,
+        "children_file_count": 1,
+        "children_dir_count": 0,
+        "descendants_count": 1,
+        "descendants_file_count": 1,
+        "descendants_dir_count": 0,
+        "descendants_size": 2094,
+        "children": [
+          {
+            "name": "index.test.ts",
+            "type": "file",
+            "path": "tests/index.test.ts",
+            "fullPath": "/Users/thalida/Documents/Repos/codecity-ai/src/tests/fixtures/sample-repo/tests/index.test.ts",
+            "extension": ".ts",
+            "size": 2094,
+            "lines": 40,
+            "binary": false,
+            "created": "2026-04-18T23:54:38Z",
+            "modified": "2026-04-18T23:54:38Z",
+            "git": {
+              "created": "2024-03-22T14:30:00Z",
+              "modified": "2024-03-22T14:30:00Z",
+              "commits": 1,
+              "contributors": [
+                "Test Fixture Bot"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
