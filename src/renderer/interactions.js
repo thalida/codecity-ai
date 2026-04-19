@@ -235,8 +235,8 @@ function startRenderLoop(canvas, manifest, config) {
         bp.sy,
         block.w,
         block.d,
-        'rgba(18, 24, 40, 0.95)',
-        'rgba(60, 80, 120, 0.4)'
+        '#121828',
+        '#283050'
       );
     }
 
@@ -270,7 +270,7 @@ function startRenderLoop(canvas, manifest, config) {
           lp.sx,
           lp.sy + 8,
           lblBlock.label,
-          'rgba(140, 160, 200, 0.7)'
+          '#8ca0c8'
         );
       }
     }

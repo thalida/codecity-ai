@@ -137,19 +137,26 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   // Ensure all faces are fully opaque (no bleed-through from prior globalAlpha)
   ctx.globalAlpha = 1;
 
-  // ---- Draw left face (shadow) -----------------------------------------------
-  // Vertices: plb (back-bottom) → plf (front-bottom) → plft (front-top) → plbt (back-top)
+  // In isometric view (camera from bottom-right), the 3 visible faces are:
+  //   1. Front-left face  (y = -hd) — faces the viewer on the left side
+  //   2. Front-right face (x = +hw) — faces the viewer on the right side
+  //   3. Top face         (z = h)   — visible from above
+
+  // ---- Draw front-left face (shadow side) ------------------------------------
+  // The face at y = -hd: plf (left-front-bottom) → prf (right-front-bottom)
+  //                       → prft (right-front-top) → plft (left-front-top)
   ctx.beginPath();
-  ctx.moveTo(tx(plb),  ty(plb));
-  ctx.lineTo(tx(plf),  ty(plf));
+  ctx.moveTo(tx(plf),  ty(plf));
+  ctx.lineTo(tx(prf),  ty(prf));
+  ctx.lineTo(tx(prft), ty(prft));
   ctx.lineTo(tx(plft), ty(plft));
-  ctx.lineTo(tx(plbt), ty(plbt));
   ctx.closePath();
   ctx.fillStyle = colorLeft;
   ctx.fill();
 
-  // ---- Draw right face (lit) -------------------------------------------------
-  // Vertices: prf (front-bottom) → prb (back-bottom) → prbt (back-top) → prft (front-top)
+  // ---- Draw front-right face (lit side) --------------------------------------
+  // The face at x = +hw: prf (right-front-bottom) → prb (right-back-bottom)
+  //                       → prbt (right-back-top) → prft (right-front-top)
   ctx.beginPath();
   ctx.moveTo(tx(prf),  ty(prf));
   ctx.lineTo(tx(prb),  ty(prb));
@@ -160,7 +167,7 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   ctx.fill();
 
   // ---- Draw top face ---------------------------------------------------------
-  // Vertices: plft → prft → prbt → plbt (clockwise from front-left)
+  // Vertices: plft → prft → prbt → plbt
   ctx.beginPath();
   ctx.moveTo(tx(plft), ty(plft));
   ctx.lineTo(tx(prft), ty(prft));
@@ -224,28 +231,28 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
 function _drawBuildingWindows(ctx, cx, cy, w, d, h, hslColor,
   plf, prf, prb, prbt, prft, plft, plbt, plb) {
 
-  // Window glow color — slightly brighter than the base with warm tint
-  var winColor = 'rgba(255, 240, 180, 0.55)';
+  // Window color — a lighter, fully opaque version of the building color
+  // Using transparent windows caused see-through artifacts when buildings overlap
+  var winColor = shadeColor(hslColor, 20);
 
   // Number of window columns and rows — scale with building size, capped
-  var colsRight = Math.max(1, Math.min(5, Math.floor(d / 8)));
-  var colsLeft  = Math.max(1, Math.min(5, Math.floor(w / 8)));
-  var rows      = Math.max(1, Math.min(8, Math.floor(h / 10)));
+  var colsFrontLeft  = Math.max(1, Math.min(5, Math.floor(w / 8)));
+  var colsFrontRight = Math.max(1, Math.min(5, Math.floor(d / 8)));
+  var rows           = Math.max(1, Math.min(8, Math.floor(h / 10)));
 
   // Window proportions relative to the face cell size
-  var winWidthFrac  = 0.35; // fraction of column width occupied by window
-  var winHeightFrac = 0.40; // fraction of row height occupied by window
+  var winWidthFrac  = 0.35;
+  var winHeightFrac = 0.40;
 
-  // ---- Right face windows ----------------------------------------------------
-  // The right face spans from prf→prb (bottom) and prft→prbt (top).
-  // We divide it into a colsRight × rows grid and place a window in each cell.
-  _drawFaceWindows(ctx, cx, cy, colsRight, rows,
+  // ---- Front-left face windows (y = -hd) ------------------------------------
+  // Bottom: plf → prf, Top: plft → prft
+  _drawFaceWindows(ctx, cx, cy, colsFrontLeft, rows,
+    plf, prf, plft, prft, winWidthFrac, winHeightFrac, winColor);
+
+  // ---- Front-right face windows (x = +hw) -----------------------------------
+  // Bottom: prf → prb, Top: prft → prbt
+  _drawFaceWindows(ctx, cx, cy, colsFrontRight, rows,
     prf, prb, prft, prbt, winWidthFrac, winHeightFrac, winColor);
-
-  // ---- Left face windows -----------------------------------------------------
-  // The left face spans from plb→plf (bottom) and plbt→plft (top).
-  _drawFaceWindows(ctx, cx, cy, colsLeft, rows,
-    plb, plf, plbt, plft, winWidthFrac, winHeightFrac, winColor);
 }
 
 
