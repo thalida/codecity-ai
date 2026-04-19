@@ -208,3 +208,14 @@ function getBuildingColor(file, palette, dateRanges, config) {
 
   return "hsl(" + h + ", " + s + "%, " + l + "%)";
 }
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    getHue,
+    getSaturation,
+    getLightness,
+    getDateRanges,
+    getBuildingColor,
+  };
+}

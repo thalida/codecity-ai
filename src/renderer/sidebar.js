@@ -343,3 +343,15 @@ function _legacyCopy(text) {
   }
   document.body.removeChild(ta);
 }
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    showFileSidebar,
+    showDirSidebar,
+    closeSidebar,
+    copyToClipboard,
+    formatBytes,
+    formatDate,
+  };
+}

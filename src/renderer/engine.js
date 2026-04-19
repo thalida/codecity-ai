@@ -364,6 +364,41 @@ function drawGround(ctx, x, y, w, d, fill, stroke) {
 
 
 // -----------------------------------------------------------------------------
+// drawLabel(ctx, x, y, text, color)
+//
+// Draws a text label at the given screen-space position, suitable for rendering
+// directory names on or near their ground blocks.
+//
+//   ctx   — Canvas 2D context
+//   x, y  — Screen-space position (already translated for pan/zoom)
+//   text  — Label string to render
+//   color — CSS color string for the text
+//
+// The label is drawn with a slight shadow for readability against dark ground.
+// -----------------------------------------------------------------------------
+function drawLabel(ctx, x, y, text, color) {
+  if (!text) return;
+
+  ctx.save();
+  ctx.font = '10px "Inter", "SF Mono", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Shadow for readability
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#000000';
+  ctx.fillText(text, x + 1, y + 1);
+
+  // Main text
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = color || '#ffffff';
+  ctx.fillText(text, x, y);
+
+  ctx.restore();
+}
+
+
+// -----------------------------------------------------------------------------
 // setupCanvas(canvas) → ctx
 //
 // Prepares a canvas element for DPR-aware (retina) rendering.
@@ -388,4 +423,18 @@ function setupCanvas(canvas) {
   ctx.scale(dpr, dpr);
 
   return ctx;
+}
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    isoProject,
+    hslToComponents,
+    componentsToHsl,
+    shadeColor,
+    drawBuilding,
+    drawGround,
+    drawLabel,
+    setupCanvas,
+  };
 }

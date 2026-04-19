@@ -317,3 +317,18 @@ canvas {
 .building-selected-indicator.visible {
   opacity: 1;
 }
+
+
+/* ── Street labels (rendered on canvas, these styles are for overlay fallback) ── */
+
+.street-label {
+  position: absolute;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(140, 160, 200, 0.7);
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}

@@ -3,12 +3,12 @@
 // CodeCity AI — Computes world-space positions for buildings, blocks, and streets.
 //
 // All functions are declared with `function` keyword so they are hoisted and
-// available globally after script concatenation. No imports or dependencies.
+// available globally after script concatenation. No imports or dependencies
+// except isoProject from engine.js (used in _computeHitBox).
 //
-// Coordinate system:
-//   World X (cx) — east-west axis (increases right)
-//   World Y (cy) — north-south / depth axis (increases toward viewer)
-//   World Z       — vertical / height axis (not stored; passed to drawBuilding)
+// Interface contract:
+//   Building: { x, y, w, d, h, color, file, hitBox: { x, y, w, h } }
+//   Block:    { x, y, w, d, label, dir }
 //
 // The layout pipeline:
 //   1. getBuildingDimensions  — derives w/d/h from file metadata
@@ -19,21 +19,11 @@
 
 
 // -----------------------------------------------------------------------------
-// getStreetTier(childrenCount, tiers) → number  [1-5]
+// getStreetTier(childrenCount, tiers) -> number [1-5]
 //
 // Maps a directory's child count to one of 5 street tiers using threshold
 // breakpoints. The tiers array contains 4 thresholds from config
-// (e.g. [3, 8, 15, 30]). Tier meaning:
-//
-//   tier 1 — count ≤ tiers[0]   (tiny alley)
-//   tier 2 — count ≤ tiers[1]   (narrow lane)
-//   tier 3 — count ≤ tiers[2]   (standard street)
-//   tier 4 — count ≤ tiers[3]   (wide avenue)
-//   tier 5 — count > tiers[3]   (boulevard)
-//
-// @param {number} childrenCount - Number of direct children in the directory.
-// @param {number[]} tiers       - Array of 4 ascending threshold values.
-// @returns {number} Tier integer in [1, 5].
+// (e.g. [3, 8, 15, 30]).
 // -----------------------------------------------------------------------------
 function getStreetTier(childrenCount, tiers) {
   if (childrenCount <= tiers[0]) return 1;
@@ -45,18 +35,9 @@ function getStreetTier(childrenCount, tiers) {
 
 
 // -----------------------------------------------------------------------------
-// getStreetWidth(tier) → number
+// getStreetWidth(tier) -> number
 //
 // Returns the pixel width of a street for the given tier.
-//
-//   tier 1 →  4px  (alley)
-//   tier 2 →  8px  (lane)
-//   tier 3 → 14px  (street)
-//   tier 4 → 22px  (avenue)
-//   tier 5 → 32px  (boulevard)
-//
-// @param {number} tier - Street tier integer in [1, 5].
-// @returns {number} Street width in world units.
 // -----------------------------------------------------------------------------
 function getStreetWidth(tier) {
   var widths = [0, 4, 8, 14, 22, 32];
@@ -66,27 +47,14 @@ function getStreetWidth(tier) {
 
 
 // -----------------------------------------------------------------------------
-// getBuildingDimensions(file, config) → { width, depth, height }
+// getBuildingDimensions(file, config) -> { w, d, h }
 //
 // Derives isometric building dimensions from file metadata using logarithmic
 // scaling so that both tiny and enormous files produce readable buildings.
 //
-//   height — from line count  (more lines → taller)
-//   width  — from file size in bytes (larger file → wider)
-//   depth  — average of height and width: (h + w) / 2
-//
-// Logarithm base: natural log (Math.log). A value of 0 or less is treated as 1
-// before taking the log to avoid -Infinity / NaN results.
-//
-// The raw log values are linearly mapped from [log(1), log(largeRef)] into
-// [min, max] where largeRef is a reference ceiling that keeps the mapping
-// stable. We use 100,000 lines and 10 MB as the reference ceilings for height
-// and width respectively.
-//
-// @param {Object} file   - File node from the scanner manifest.
-// @param {Object} config - Config object with a `building` key:
-//                          { min_height, max_height, min_width, max_width }
-// @returns {{ width: number, depth: number, height: number }}
+//   h — from line count  (more lines -> taller)
+//   w — from file size in bytes (larger file -> wider)
+//   d — average of h and w: (h + w) / 2
 // -----------------------------------------------------------------------------
 function getBuildingDimensions(file, config) {
   var bc = config.building;
@@ -111,43 +79,25 @@ function getBuildingDimensions(file, config) {
   var depth = (height + width) / 2;
 
   return {
-    width:  Math.round(width  * 10) / 10,
-    depth:  Math.round(depth  * 10) / 10,
-    height: Math.round(height * 10) / 10
+    w: Math.round(width  * 10) / 10,
+    d: Math.round(depth  * 10) / 10,
+    h: Math.round(height * 10) / 10
   };
 }
 
 
 // -----------------------------------------------------------------------------
-// layoutBlock(dirNode, config) → { buildings, blockWidth, blockDepth }
+// layoutBlock(dirNode, config) -> { buildings, blockW, blockD }
 //
 // Arranges all direct file children of a directory node in a rectangular grid
-// within a single "city block". Directory children are ignored at this level
-// (they become nested blocks in layoutCity).
-//
-// Grid packing strategy:
-//   - Target a roughly-square arrangement: cols ≈ ceil(sqrt(fileCount))
-//   - Rows = ceil(fileCount / cols)
-//   - Each cell is sized to the maximum building footprint + SPACING
-//   - Buildings are centered within their cells
-//   - The block has BLOCK_PADDING on all four sides
-//
-// Origin: buildings are positioned relative to (0, 0) at the block's center.
-// The caller (layoutCity) will translate them to world coordinates.
-//
-// @param {Object} dirNode - Directory node from the manifest (with .children).
-// @param {Object} config  - Full config object (used for building dimension limits).
-// @returns {{
-//   buildings:  Array<{ cx, cy, width, depth, height, file }>,
-//   blockWidth: number,
-//   blockDepth: number
-// }}
+// within a single "city block". Directory children are ignored at this level.
+// Returns buildings with positions relative to block center (0, 0).
 // -----------------------------------------------------------------------------
 function layoutBlock(dirNode, config) {
   var SPACING       = 6;   // gap between building bounding boxes (world units)
   var BLOCK_PADDING = 10;  // empty border inside the block perimeter
 
-  // Collect only file children (dirs are handled as separate blocks in layoutCity)
+  // Collect only file children
   var files = [];
   var children = dirNode.children || [];
   for (var i = 0; i < children.length; i++) {
@@ -156,9 +106,9 @@ function layoutBlock(dirNode, config) {
     }
   }
 
-  // Empty block — return a minimal stub
+  // Empty block
   if (files.length === 0) {
-    return { buildings: [], blockWidth: BLOCK_PADDING * 2, blockDepth: BLOCK_PADDING * 2 };
+    return { buildings: [], blockW: BLOCK_PADDING * 2, blockD: BLOCK_PADDING * 2 };
   }
 
   // Compute dimensions for every file building
@@ -171,8 +121,8 @@ function layoutBlock(dirNode, config) {
   var maxW = 0;
   var maxD = 0;
   for (var di = 0; di < dims.length; di++) {
-    if (dims[di].width > maxW) maxW = dims[di].width;
-    if (dims[di].depth > maxD) maxD = dims[di].depth;
+    if (dims[di].w > maxW) maxW = dims[di].w;
+    if (dims[di].d > maxD) maxD = dims[di].d;
   }
 
   // Grid layout: aim for a square arrangement
@@ -184,72 +134,55 @@ function layoutBlock(dirNode, config) {
   var cellD = maxD + SPACING;
 
   // Total block size
-  var blockWidth = cols * cellW + BLOCK_PADDING * 2;
-  var blockDepth = rows * cellD + BLOCK_PADDING * 2;
+  var blockW = cols * cellW + BLOCK_PADDING * 2;
+  var blockD = rows * cellD + BLOCK_PADDING * 2;
 
   // Place buildings: center of each cell relative to block center
-  // Block spans x ∈ [-blockWidth/2, blockWidth/2],
-  //             y ∈ [-blockDepth/2, blockDepth/2]
   var buildings = [];
-  var startX = -blockWidth / 2 + BLOCK_PADDING + cellW / 2;
-  var startY = -blockDepth / 2 + BLOCK_PADDING + cellD / 2;
+  var startX = -blockW / 2 + BLOCK_PADDING + cellW / 2;
+  var startY = -blockD / 2 + BLOCK_PADDING + cellD / 2;
 
   for (var bi = 0; bi < files.length; bi++) {
     var col = bi % cols;
     var row = Math.floor(bi / cols);
 
-    var cx = startX + col * cellW;
-    var cy = startY + row * cellD;
-
     buildings.push({
-      cx:     cx,
-      cy:     cy,
-      width:  dims[bi].width,
-      depth:  dims[bi].depth,
-      height: dims[bi].height,
-      file:   files[bi]
+      x:    startX + col * cellW,
+      y:    startY + row * cellD,
+      w:    dims[bi].w,
+      d:    dims[bi].d,
+      h:    dims[bi].h,
+      file: files[bi]
     });
   }
 
   return {
-    buildings:  buildings,
-    blockWidth: blockWidth,
-    blockDepth: blockDepth
+    buildings: buildings,
+    blockW:    blockW,
+    blockD:    blockD
   };
 }
 
 
 // -----------------------------------------------------------------------------
-// _computeHitBox(cx, cy, width, depth, height) → { x, y, width, height }
+// _computeHitBox(x, y, w, d, h) -> { x, y, w, h }
 //
-// Projects all 8 corners of a building's footprint into screen space using the
-// global isoProject function and returns the axis-aligned bounding rectangle.
-// Used for click / hover hit-testing.
-//
-// The result coordinates are relative to the building's own screen-space center
-// (cx, cy). The caller (layoutCity) adds the world-origin screen-offset when
-// composing the final hitBox if needed, but since isoProject is relative to
-// world origin the hit box here is expressed in the same relative space:
-//   hitBox.x and hitBox.y are the offset from (cx, cy) to the top-left corner.
-//
-// @param {number} cx, cy         - World-space center of the building base.
-// @param {number} width, depth, height - Building dimensions.
-// @returns {{ x: number, y: number, width: number, height: number }}
+// Projects all 8 corners of a building's bounding box into screen space using
+// isoProject and returns the axis-aligned bounding rectangle for hit testing.
 // -----------------------------------------------------------------------------
-function _computeHitBox(cx, cy, width, depth, height) {
-  var hw = width  / 2;
-  var hd = depth  / 2;
+function _computeHitBox(bx, by, w, d, h) {
+  var hw = w / 2;
+  var hd = d / 2;
 
-  // Project all 8 corners of the building box
   var corners = [
     isoProject(-hw, -hd, 0),
     isoProject( hw, -hd, 0),
     isoProject( hw,  hd, 0),
     isoProject(-hw,  hd, 0),
-    isoProject(-hw, -hd, height),
-    isoProject( hw, -hd, height),
-    isoProject( hw,  hd, height),
-    isoProject(-hw,  hd, height)
+    isoProject(-hw, -hd, h),
+    isoProject( hw, -hd, h),
+    isoProject( hw,  hd, h),
+    isoProject(-hw,  hd, h)
   ];
 
   var minSx = Infinity, maxSx = -Infinity;
@@ -262,51 +195,32 @@ function _computeHitBox(cx, cy, width, depth, height) {
   }
 
   return {
-    x:      cx + minSx,
-    y:      cy + minSy,
-    width:  maxSx - minSx,
-    height: maxSy - minSy
+    x: bx + minSx,
+    y: by + minSy,
+    w: maxSx - minSx,
+    h: maxSy - minSy
   };
 }
 
 
 // -----------------------------------------------------------------------------
-// layoutCity(manifest, config) → { blocks, buildings }
+// layoutCity(manifest, config) -> { blocks, buildings }
 //
 // Top-level layout function. Takes the full scanner manifest and produces
 // world-space positions for every block and building.
 //
-// Layout strategy for top-level directories:
-//   - Each direct child directory of the manifest root becomes a "block".
-//   - Blocks are arranged on a square grid (same cols ≈ sqrt approach).
-//   - Streets run between blocks; street width is determined by the block's
-//     directory children count via getStreetTier / getStreetWidth.
-//   - Nested directories (grandchildren) are recursively inlined into their
-//     parent block — their file buildings are offset into the parent's footprint.
-//     (Full recursive sub-block nesting would require a more complex renderer;
-//      for now we flatten one level deep and mark the source directory.)
-//   - Files directly at the root level are placed in a synthetic "root" block.
-//
 // Return shape:
-//   blocks:    [{ cx, cy, blockWidth, blockDepth, dir }]
-//   buildings: [{ cx, cy, width, depth, height, color, file, hitBox }]
+//   blocks:    [{ x, y, w, d, label, dir }]
+//   buildings: [{ x, y, w, d, h, color, file, hitBox: { x, y, w, h } }]
 //
-// `color` is set to the placeholder string "placeholder" — the renderer should
-// call getBuildingColor(file, palette, dateRanges, config) before drawing.
-//
-// @param {Object} manifest - Full scanner manifest: { root, scanned_at, tree }.
-// @param {Object} config   - Merged config object (see defaults.json schema).
-// @returns {{ blocks: Array, buildings: Array }}
+// `color` starts as null — the renderer must call getBuildingColor before drawing.
 // -----------------------------------------------------------------------------
 function layoutCity(manifest, config) {
-  var STREET_PADDING = 8;  // extra buffer added to each side of every street gap
+  var STREET_PADDING = 8;
 
-  var tree = manifest.tree || manifest;  // support both manifest.tree and bare tree
+  var tree = manifest.tree || manifest;
 
   // ---- Collect top-level blocks -----------------------------------------------
-  // Each direct directory child of root → one city block.
-  // Files directly at root → synthetic "root files" block.
-
   var topDirs  = [];
   var rootFiles = [];
   var children  = tree.children || [];
@@ -319,7 +233,7 @@ function layoutCity(manifest, config) {
     }
   }
 
-  // Synthesise a fake dir node for root-level files so they form a block
+  // Synthesise a fake dir node for root-level files
   var allDirNodes = topDirs.slice();
   if (rootFiles.length > 0) {
     var syntheticRoot = {
@@ -332,7 +246,7 @@ function layoutCity(manifest, config) {
     allDirNodes.unshift(syntheticRoot);
   }
 
-  // If the codebase has no directories at all, treat root as the only block
+  // If no directories at all, treat root as the only block
   if (allDirNodes.length === 0) {
     allDirNodes = [tree];
   }
@@ -343,20 +257,19 @@ function layoutCity(manifest, config) {
     var dir = allDirNodes[bi];
     var bl  = layoutBlock(dir, config);
 
-    // Also fold in nested subdirectory file buildings (one level deep)
-    var subBuildings = _collectSubdirBuildings(dir, config, bl.blockWidth, bl.blockDepth);
+    // Fold in nested subdirectory file buildings (one level deep)
+    var subBuildings = _collectSubdirBuildings(dir, config, bl.blockW, bl.blockD);
 
-    // If subdirectories added buildings, expand the block to fit them
     if (subBuildings.extraW || subBuildings.extraD) {
-      bl.blockWidth  += subBuildings.extraW;
-      bl.blockDepth  += subBuildings.extraD;
+      bl.blockW += subBuildings.extraW;
+      bl.blockD += subBuildings.extraD;
     }
 
     blockLayouts.push({
-      dir:        dir,
-      buildings:  bl.buildings.concat(subBuildings.buildings),
-      blockWidth: bl.blockWidth,
-      blockDepth: bl.blockDepth
+      dir:       dir,
+      buildings: bl.buildings.concat(subBuildings.buildings),
+      blockW:    bl.blockW,
+      blockD:    bl.blockD
     });
   }
 
@@ -365,7 +278,6 @@ function layoutCity(manifest, config) {
   var cols = Math.ceil(Math.sqrt(allDirNodes.length));
   var rows = Math.ceil(allDirNodes.length / cols);
 
-  // Find max block dimensions per column / row for non-uniform block support
   var colWidths = [];
   var rowDepths = [];
   for (var c = 0; c < cols; c++) colWidths.push(0);
@@ -374,11 +286,10 @@ function layoutCity(manifest, config) {
   for (var k = 0; k < blockLayouts.length; k++) {
     var col = k % cols;
     var row = Math.floor(k / cols);
-    if (blockLayouts[k].blockWidth > colWidths[col]) colWidths[col] = blockLayouts[k].blockWidth;
-    if (blockLayouts[k].blockDepth > rowDepths[row]) rowDepths[row] = blockLayouts[k].blockDepth;
+    if (blockLayouts[k].blockW > colWidths[col]) colWidths[col] = blockLayouts[k].blockW;
+    if (blockLayouts[k].blockD > rowDepths[row]) rowDepths[row] = blockLayouts[k].blockD;
   }
 
-  // Street width between columns / rows — use the largest tier present
   var maxTier = 1;
   for (var mi = 0; mi < allDirNodes.length; mi++) {
     var count = allDirNodes[mi].children_count || 0;
@@ -387,19 +298,17 @@ function layoutCity(manifest, config) {
   }
   var streetW = getStreetWidth(maxTier) + STREET_PADDING * 2;
 
-  // Cumulative column X offsets
+  // Cumulative offsets
   var colOffsets = [0];
   for (var ci = 1; ci <= cols; ci++) {
     colOffsets[ci] = colOffsets[ci - 1] + colWidths[ci - 1] + streetW;
   }
 
-  // Cumulative row Y offsets
   var rowOffsets = [0];
   for (var ri = 1; ri <= rows; ri++) {
     rowOffsets[ri] = rowOffsets[ri - 1] + rowDepths[ri - 1] + streetW;
   }
 
-  // Total city footprint
   var totalWidth = colOffsets[cols];
   var totalDepth = rowOffsets[rows];
 
@@ -411,45 +320,38 @@ function layoutCity(manifest, config) {
     var bcol = n % cols;
     var brow = Math.floor(n / cols);
 
-    // Block center in world space
-    // Offset within its column/row slot so the block is centered in the cell
     var slotCx = colOffsets[bcol] + colWidths[bcol] / 2;
     var slotCy = rowOffsets[brow] + rowDepths[brow] / 2;
 
-    // Shift so city is centered around (0, 0)
-    var worldCx = slotCx - totalWidth / 2;
-    var worldCy = slotCy - totalDepth / 2;
+    // Center city around (0, 0)
+    var worldX = slotCx - totalWidth / 2;
+    var worldY = slotCy - totalDepth / 2;
 
     outBlocks.push({
-      screenX:    worldCx,
-      screenY:    worldCy,
-      cx:         worldCx,
-      cy:         worldCy,
-      width:      blockLayouts[n].blockWidth,
-      depth:      blockLayouts[n].blockDepth,
-      blockWidth: blockLayouts[n].blockWidth,
-      blockDepth: blockLayouts[n].blockDepth,
-      dir:        blockLayouts[n].dir
+      x:     worldX,
+      y:     worldY,
+      w:     blockLayouts[n].blockW,
+      d:     blockLayouts[n].blockD,
+      label: blockLayouts[n].dir.name || '',
+      dir:   blockLayouts[n].dir
     });
 
     // Translate each building from block-local coords to world coords
     var bldgs = blockLayouts[n].buildings;
     for (var bj = 0; bj < bldgs.length; bj++) {
       var b   = bldgs[bj];
-      var wcx = worldCx + b.cx;
-      var wcy = worldCy + b.cy;
+      var wx = worldX + b.x;
+      var wy = worldY + b.y;
 
       outBuildings.push({
-        screenX: wcx,
-        screenY: wcy,
-        cx:      wcx,
-        cy:      wcy,
-        width:   b.width,
-        depth:   b.depth,
-        height:  b.height,
-        color:   'placeholder',
-        file:    b.file,
-        hitBox:  _computeHitBox(wcx, wcy, b.width, b.depth, b.height)
+        x:      wx,
+        y:      wy,
+        w:      b.w,
+        d:      b.d,
+        h:      b.h,
+        color:  null,
+        file:   b.file,
+        hitBox: _computeHitBox(wx, wy, b.w, b.d, b.h)
       });
     }
   }
@@ -463,24 +365,13 @@ function layoutCity(manifest, config) {
 
 // -----------------------------------------------------------------------------
 // _collectSubdirBuildings(dirNode, config, parentW, parentD)
-//   → { buildings, extraW, extraD }
+//   -> { buildings, extraW, extraD }
 //
-// Private helper for layoutCity. Recursively collects file buildings from all
-// child directory nodes of dirNode and arranges them below / beside the parent
-// block's existing footprint so they stay within the same city block.
-//
-// Strategy: each child subdirectory is laid out as its own sub-block and
-// appended to the right of the parent block (x-axis). This keeps the city
-// looking organised without requiring a recursive renderer.
-//
-// @param {Object} dirNode  - Parent directory node.
-// @param {Object} config   - Full config.
-// @param {number} parentW  - Parent block's current width (to avoid overlap).
-// @param {number} parentD  - Parent block's current depth.
-// @returns {{ buildings: Array, extraW: number, extraD: number }}
+// Collects file buildings from child directories and arranges them beside the
+// parent block.
 // -----------------------------------------------------------------------------
 function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
-  var SUB_SPACING = 6;  // gap between parent block and sub-blocks
+  var SUB_SPACING = 6;
 
   var children = dirNode.children || [];
   var subDirs  = [];
@@ -494,40 +385,32 @@ function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
     return { buildings: [], extraW: 0, extraD: 0 };
   }
 
-  // Lay out sub-blocks in a row to the right of the parent footprint
   var allBuildings = [];
-  var cursorX = parentW / 2 + SUB_SPACING;  // start right of parent block
+  var cursorX = parentW / 2 + SUB_SPACING;
   var maxSubD  = 0;
 
   for (var si = 0; si < subDirs.length; si++) {
     var sub = layoutBlock(subDirs[si], config);
 
-    // Skip empty sub-blocks
     if (sub.buildings.length === 0) continue;
 
-    // Position the sub-block's center relative to parent center
-    var subCx = cursorX + sub.blockWidth / 2;
-    var subCy = 0;  // aligned to parent Y center
+    var subCx = cursorX + sub.blockW / 2;
+    var subCy = 0;
 
-    // Translate sub buildings into parent-relative coords
     for (var bk = 0; bk < sub.buildings.length; bk++) {
       var b = sub.buildings[bk];
-      var sx = subCx + b.cx;
-      var sy = subCy + b.cy;
       allBuildings.push({
-        screenX: sx,
-        screenY: sy,
-        cx:     sx,
-        cy:     sy,
-        width:  b.width,
-        depth:  b.depth,
-        height: b.height,
-        file:   b.file
+        x:    subCx + b.x,
+        y:    subCy + b.y,
+        w:    b.w,
+        d:    b.d,
+        h:    b.h,
+        file: b.file
       });
     }
 
-    cursorX += sub.blockWidth + SUB_SPACING;
-    if (sub.blockDepth > maxSubD) maxSubD = sub.blockDepth;
+    cursorX += sub.blockW + SUB_SPACING;
+    if (sub.blockD > maxSubD) maxSubD = sub.blockD;
   }
 
   var extraW = (allBuildings.length > 0) ? (cursorX - parentW / 2) : 0;
@@ -542,23 +425,26 @@ function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
 
 
 // -----------------------------------------------------------------------------
-// sortForRendering(buildings) → buildings[]
+// sortForRendering(buildings) -> buildings[]
 //
 // Painter's algorithm: sorts buildings so that those further from the viewer
-// (higher cx + cy sum) are drawn first and those closer (lower cx + cy) are
-// drawn last. This produces correct occlusion in the isometric projection where
-// the "back" of the scene has larger coordinate sums.
-//
-// Returns a new sorted array; the original array is not mutated.
-//
-// @param {Array} buildings - Array of building objects with cx and cy properties.
-// @returns {Array} New array sorted back-to-front (farthest first).
+// (higher x + y sum) are drawn first. Returns a new sorted array.
 // -----------------------------------------------------------------------------
 function sortForRendering(buildings) {
-  var sorted = buildings.slice();  // shallow copy — do not mutate input
+  var sorted = buildings.slice();
   sorted.sort(function(a, b) {
-    // Descending: higher (cx + cy) → earlier in the draw list (painted first)
-    return (b.cx + b.cy) - (a.cx + a.cy);
+    return (b.x + b.y) - (a.x + a.y);
   });
   return sorted;
+}
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    getStreetTier,
+    getStreetWidth,
+    getBuildingDimensions,
+    layoutCity,
+    sortForRendering,
+  };
 }

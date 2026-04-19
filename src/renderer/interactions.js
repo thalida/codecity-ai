@@ -6,30 +6,30 @@
 // available globally after script concatenation.
 //
 // Depends on (loaded before this file in the assembled HTML):
-//   engine.js  — setupCanvas(), drawBuilding(), drawGround()
+//   engine.js  — setupCanvas(), drawBuilding(), drawGround(), drawLabel()
 //   colors.js  — getBuildingColor(), getDateRanges()
 //   layout.js  — layoutCity(), sortForRendering()
 //   sidebar.js — showFileSidebar(), showDirSidebar(), closeSidebar()
+//
+// Interface contract property names:
+//   Building: { x, y, w, d, h, color, file, hitBox: { x, y, w, h } }
+//   Block:    { x, y, w, d, label, dir }
 // =============================================================================
 
 
 // -----------------------------------------------------------------------------
-// hitTest(screenX, screenY, buildings, zoomLevel, panX, panY)
+// hitTest(screenX, screenY, buildings, zoomLevel, panX, panY,
+//         canvasWidth, canvasHeight)
 //
 // Transforms a screen-space click/hover coordinate back into the world space
 // used by building hitBoxes, then tests against each building's hitBox.
 //
 // hitBox format (from layout.js):
-//   { x, y, width, height }  — in screen-space BEFORE zoom/pan are applied
-//
-// The render transform is: ctx.translate(W/2 + panX, H/2 + panY)
-//                           ctx.scale(zoomLevel, zoomLevel)
-// So to invert:             worldX = (screenX - W/2 - panX) / zoomLevel
+//   { x, y, w, h }  — in screen-space BEFORE zoom/pan are applied
 //
 // Returns the matching building object, or null if no hit.
 // -----------------------------------------------------------------------------
 function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
-  // Invert the viewport transform to get coordinates in layout world space
   var worldX = (screenX - canvasWidth  / 2 - panX) / zoomLevel;
   var worldY = (screenY - canvasHeight / 2 - panY) / zoomLevel;
 
@@ -39,8 +39,8 @@ function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth
     if (!b.hitBox) continue;
 
     var hb = b.hitBox;
-    if (worldX >= hb.x && worldX <= hb.x + hb.width &&
-        worldY >= hb.y && worldY <= hb.y + hb.height) {
+    if (worldX >= hb.x && worldX <= hb.x + hb.w &&
+        worldY >= hb.y && worldY <= hb.y + hb.h) {
       return b;
     }
   }
@@ -54,12 +54,9 @@ function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth
 //             canvasWidth, canvasHeight)
 //
 // Performs a hit test against all buildings.
-//   Hit on a file building   → showFileSidebar(building.node)
-//   Hit on a dir building    → showDirSidebar(building.node)
-//   Miss (empty space click) → closeSidebar()
-//
-// `building.node` is the manifest node stored by layout.js on each building.
-// `building.file` is the manifest node; `building.file.type` is "file" or "directory".
+//   Hit on a file building   -> showFileSidebar(building.file)
+//   Hit on a dir building    -> showDirSidebar(building.file)
+//   Miss (empty space click) -> closeSidebar()
 // -----------------------------------------------------------------------------
 function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
   var hit = hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight);
@@ -80,10 +77,7 @@ function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasW
 // updateCursor(canvas, screenX, screenY, buildings, zoomLevel, panX, panY,
 //              isPanning, canvasWidth, canvasHeight)
 //
-// Updates the canvas CSS cursor based on current interaction state:
-//   grabbing  — while actively panning (mouse button held)
-//   pointer   — hovering over a building hitBox
-//   grab      — hovering over empty space (pan available)
+// Updates the canvas CSS cursor based on current interaction state.
 // -----------------------------------------------------------------------------
 function updateCursor(canvas, screenX, screenY, buildings, zoomLevel, panX, panY, isPanning, canvasWidth, canvasHeight) {
   if (isPanning) {
@@ -104,25 +98,19 @@ function updateCursor(canvas, screenX, screenY, buildings, zoomLevel, panX, panY
 //
 // Call once after the DOM is ready:
 //   startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
-//
-// Parameters:
-//   canvas   — <canvas id="city"> element
-//   manifest — JSON manifest from scan.sh (has .tree root node)
-//   config   — merged defaults + user overrides from defaults.json
 // -----------------------------------------------------------------------------
 function startRenderLoop(canvas, manifest, config) {
-  // ── 1. Canvas setup ─────────────────────────────────────────────────────────
+  // -- 1. Canvas setup ---------------------------------------------------------
   var ctx = setupCanvas(canvas);
 
-  // Logical CSS dimensions (what we draw in)
   var W = canvas.offsetWidth;
   var H = canvas.offsetHeight;
 
-  // ── 2. Layout ────────────────────────────────────────────────────────────────
+  // -- 2. Layout ---------------------------------------------------------------
   var layout = layoutCity(manifest.tree, config);
   var buildings = sortForRendering(layout.buildings);
 
-  // ── 3. Colors ────────────────────────────────────────────────────────────────
+  // -- 3. Colors ---------------------------------------------------------------
   var dateRanges = getDateRanges(manifest.tree);
   var palette    = config.palette || {};
 
@@ -131,12 +119,11 @@ function startRenderLoop(canvas, manifest, config) {
     if (b.file && b.file.type === 'file') {
       b.color = getBuildingColor(b.file, palette, dateRanges, config);
     } else {
-      // Directory blocks get a neutral dark color
       b.color = 'hsl(220, 15%, 25%)';
     }
   }
 
-  // ── 4. Interaction state ─────────────────────────────────────────────────────
+  // -- 4. Interaction state ----------------------------------------------------
   var panX      = 0;
   var panY      = 0;
   var zoomLevel = 1;
@@ -146,44 +133,49 @@ function startRenderLoop(canvas, manifest, config) {
   var dragStartY  = 0;
   var panStartX   = 0;
   var panStartY   = 0;
-  var didDrag     = false;  // distinguish click from drag
+  var didDrag     = false;
 
-  // Drag threshold in CSS pixels — moves smaller than this count as clicks
   var DRAG_THRESHOLD = 4;
-
-  // Zoom bounds
   var MIN_ZOOM = 0.3;
   var MAX_ZOOM = 5.0;
 
-  // ── 5. Render function ───────────────────────────────────────────────────────
+  // -- 5. Render function ------------------------------------------------------
   function renderCity() {
-    // Re-read logical dimensions each frame in case of resize
     W = canvas.offsetWidth;
     H = canvas.offsetHeight;
 
-    // Clear the full canvas in logical (CSS pixel) coordinates.
-    // setupCanvas() pre-scales the context by devicePixelRatio so 1 unit = 1 CSS pixel;
-    // clearRect(0, 0, W, H) covers the entire canvas without touching that scale.
     ctx.clearRect(0, 0, W, H);
-
     ctx.save();
 
-    // Apply viewport transform: center → pan → zoom
+    // Apply viewport transform: center -> pan -> zoom
     ctx.translate(W / 2 + panX, H / 2 + panY);
     ctx.scale(zoomLevel, zoomLevel);
 
-    // ---- Ground blocks (drawn first — painter's algorithm) ------------------
+    // ---- Ground blocks (drawn first -- painter's algorithm) ------------------
     for (var g = 0; g < layout.blocks.length; g++) {
       var block = layout.blocks[g];
+
+      // Draw a slightly lighter ground for the street area (visual distinction)
       drawGround(
         ctx,
-        block.screenX,
-        block.screenY,
-        block.width,
-        block.depth,
-        block.fill   || 'rgba(18, 24, 40, 0.95)',
-        block.stroke || 'rgba(60, 80, 120, 0.4)'
+        block.x,
+        block.y,
+        block.w,
+        block.d,
+        'rgba(18, 24, 40, 0.95)',
+        'rgba(60, 80, 120, 0.4)'
       );
+
+      // Draw directory label on the block
+      if (block.label) {
+        drawLabel(
+          ctx,
+          block.x,
+          block.y,
+          block.label,
+          'rgba(140, 160, 200, 0.7)'
+        );
+      }
     }
 
     // ---- Buildings (sorted back-to-front) -----------------------------------
@@ -191,11 +183,11 @@ function startRenderLoop(canvas, manifest, config) {
       var bld = buildings[bi];
       drawBuilding(
         ctx,
-        bld.screenX,
-        bld.screenY,
-        bld.width,
-        bld.depth,
-        bld.height,
+        bld.x,
+        bld.y,
+        bld.w,
+        bld.d,
+        bld.h,
         bld.color
       );
     }
@@ -206,11 +198,11 @@ function startRenderLoop(canvas, manifest, config) {
   // Initial render
   renderCity();
 
-  // ── 6. Event listeners ───────────────────────────────────────────────────────
+  // -- 6. Event listeners ------------------------------------------------------
 
   // ---- Mouse down: start potential pan or click ----------------------------
   canvas.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return; // left button only
+    if (e.button !== 0) return;
     isPanning  = true;
     didDrag    = false;
     dragStartX = e.clientX;
@@ -230,7 +222,6 @@ function startRenderLoop(canvas, manifest, config) {
       var dx = e.clientX - dragStartX;
       var dy = e.clientY - dragStartY;
 
-      // Only commit to drag once we exceed the threshold
       if (!didDrag && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
         didDrag = true;
       }
@@ -243,7 +234,6 @@ function startRenderLoop(canvas, manifest, config) {
 
       canvas.style.cursor = 'grabbing';
     } else {
-      // Hover cursor: pointer over buildings, grab otherwise
       updateCursor(canvas, mx, my, buildings, zoomLevel, panX, panY, false, W, H);
     }
   });
@@ -253,7 +243,6 @@ function startRenderLoop(canvas, manifest, config) {
     if (e.button !== 0) return;
 
     if (!didDrag) {
-      // This was a click — do hit testing
       var rect = canvas.getBoundingClientRect();
       var mx   = e.clientX - rect.left;
       var my   = e.clientY - rect.top;
@@ -263,7 +252,6 @@ function startRenderLoop(canvas, manifest, config) {
     isPanning = false;
     didDrag   = false;
 
-    // Reset cursor based on current hover position
     var rect2 = canvas.getBoundingClientRect();
     var mx2 = e.clientX - rect2.left;
     var my2 = e.clientY - rect2.top;
@@ -285,23 +273,15 @@ function startRenderLoop(canvas, manifest, config) {
     var mx   = e.clientX - rect.left;
     var my   = e.clientY - rect.top;
 
-    // Determine zoom factor from scroll delta.
-    // deltaMode 0 = pixels, 1 = lines, 2 = pages. Normalize to pixels.
     var delta = e.deltaY;
     if (e.deltaMode === 1) delta *= 24;
     if (e.deltaMode === 2) delta *= 400;
 
-    // Exponential zoom step (feels more natural than linear)
     var zoomFactor = Math.pow(0.999, delta);
     var newZoom    = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel * zoomFactor));
 
-    if (newZoom === zoomLevel) return; // already at bounds
+    if (newZoom === zoomLevel) return;
 
-    // Zoom centered on cursor: adjust pan so the point under the cursor stays fixed.
-    // Point under cursor in world space before zoom:
-    //   worldX = (mx - W/2 - panX) / zoomLevel
-    // After zoom the same world point should map to the same screen point:
-    //   panX_new = mx - W/2 - worldX * newZoom
     var worldX = (mx - W / 2 - panX) / zoomLevel;
     var worldY = (my - H / 2 - panY) / zoomLevel;
 
@@ -324,4 +304,14 @@ function startRenderLoop(canvas, manifest, config) {
     ctx = setupCanvas(canvas);
     renderCity();
   });
+}
+
+// CommonJS exports for Vitest (guarded so browser concatenation still works)
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    hitTest,
+    handleClick,
+    updateCursor,
+    startRenderLoop,
+  };
 }
