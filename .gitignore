@@ -28,3 +28,6 @@ playwright-report/
 *~
 .idea/
 .vscode/
+
+# Claude Code session scratch (per-dev handoff notes, local settings)
+.claude/
