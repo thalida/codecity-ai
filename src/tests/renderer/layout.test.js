@@ -183,16 +183,18 @@ describe('layoutCity', () => {
 
 // ---- sortForRendering ----
 describe('sortForRendering', () => {
-  it('sorts back-to-front (highest x+y first)', () => {
+  it('sorts back-to-front (lowest x+y first — behind draws first)', () => {
     const unsorted = [
-      { x: 5, y: 5, id: 'close' },
+      { x: 5, y: 5, id: 'near' },
       { x: 20, y: 20, id: 'far' },
       { x: 10, y: 10, id: 'mid' },
     ];
     const sorted = sortForRendering(unsorted);
-    expect(sorted[0].id).toBe('far');
+    // Lowest x+y = behind (north/west), drawn first
+    // Highest x+y = in front (south/east), drawn last (on top)
+    expect(sorted[0].id).toBe('near');
     expect(sorted[1].id).toBe('mid');
-    expect(sorted[2].id).toBe('close');
+    expect(sorted[2].id).toBe('far');
   });
 
   it('does not mutate original array', () => {

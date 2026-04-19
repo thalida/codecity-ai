@@ -435,7 +435,12 @@ function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
 function sortForRendering(buildings) {
   var sorted = buildings.slice();
   sorted.sort(function(a, b) {
-    return (b.x + b.y) - (a.x + a.y);
+    // Ascending: lowest x+y drawn first.
+    // In our projection sx=(x-y)*cos30, sy=(x+y)*sin30-z:
+    //   Lower x+y = higher on screen (north-west) = behind
+    //   Higher x+y = lower on screen (south-east) = in front
+    // Painter's: draw behind first (low x+y), in-front last (high x+y).
+    return (a.x + a.y) - (b.x + b.y);
   });
   return sorted;
 }

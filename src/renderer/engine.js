@@ -130,33 +130,37 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   function ty(p) { return cy + p.sy; }
 
   // ---- Determine face colors --------------------------------------------------
-  var colorTop   = hslColor;                    // base color
-  var colorRight = shadeColor(hslColor, -30);   // mid shade (right/lit side)
-  var colorLeft  = shadeColor(hslColor, -50);   // darkest (left/shadow side)
+  var colorTop   = hslColor;                    // base color (brightest)
+  var colorRight = shadeColor(hslColor, -15);   // lit side (slight shadow)
+  var colorLeft  = shadeColor(hslColor, -30);   // shadow side (darker but still visible)
 
-  // Ensure all faces are fully opaque (no bleed-through from prior globalAlpha)
   ctx.globalAlpha = 1;
 
-  // In isometric view (camera from bottom-right), the 3 visible faces are:
-  //   1. Front-left face  (y = -hd) — faces the viewer on the left side
-  //   2. Front-right face (x = +hw) — faces the viewer on the right side
-  //   3. Top face         (z = h)   — visible from above
+  // Screen layout of the base diamond:
+  //   plf (-hw,-hd) → screen TOP
+  //   prf (+hw,-hd) → screen RIGHT
+  //   prb (+hw,+hd) → screen BOTTOM
+  //   plb (-hw,+hd) → screen LEFT
+  //
+  // 4 visible faces (back face y=+hd is hidden):
+  //   Left wall:  x = -hw  (plb → plf → plft → plbt)
+  //   Right wall: x = +hw  (prf → prb → prbt → prft)
+  //   Front wall: y = -hd  (plf → prf → prft → plft) — fills gap at top of diamond
+  //   Top:        z = h    (plft → prft → prbt → plbt)
 
-  // ---- Draw front-left face (shadow side) ------------------------------------
-  // The face at y = -hd: plf (left-front-bottom) → prf (right-front-bottom)
-  //                       → prft (right-front-top) → plft (left-front-top)
+  var colorFront = shadeColor(hslColor, -22);
+
+  // ---- Draw left wall (x = -hw, shadow side) --------------------------------
   ctx.beginPath();
-  ctx.moveTo(tx(plf),  ty(plf));
-  ctx.lineTo(tx(prf),  ty(prf));
-  ctx.lineTo(tx(prft), ty(prft));
+  ctx.moveTo(tx(plb),  ty(plb));
+  ctx.lineTo(tx(plf),  ty(plf));
   ctx.lineTo(tx(plft), ty(plft));
+  ctx.lineTo(tx(plbt), ty(plbt));
   ctx.closePath();
   ctx.fillStyle = colorLeft;
   ctx.fill();
 
-  // ---- Draw front-right face (lit side) --------------------------------------
-  // The face at x = +hw: prf (right-front-bottom) → prb (right-back-bottom)
-  //                       → prbt (right-back-top) → prft (right-front-top)
+  // ---- Draw right wall (x = +hw, lit side) ----------------------------------
   ctx.beginPath();
   ctx.moveTo(tx(prf),  ty(prf));
   ctx.lineTo(tx(prb),  ty(prb));
@@ -166,8 +170,17 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   ctx.fillStyle = colorRight;
   ctx.fill();
 
-  // ---- Draw top face ---------------------------------------------------------
-  // Vertices: plft → prft → prbt → plbt
+  // ---- Draw front wall (y = -hd) — seals gap between left and right ---------
+  ctx.beginPath();
+  ctx.moveTo(tx(plf),  ty(plf));
+  ctx.lineTo(tx(prf),  ty(prf));
+  ctx.lineTo(tx(prft), ty(prft));
+  ctx.lineTo(tx(plft), ty(plft));
+  ctx.closePath();
+  ctx.fillStyle = colorFront;
+  ctx.fill();
+
+  // ---- Draw top face (z = h) ------------------------------------------------
   ctx.beginPath();
   ctx.moveTo(tx(plft), ty(plft));
   ctx.lineTo(tx(prft), ty(prft));
@@ -235,23 +248,22 @@ function _drawBuildingWindows(ctx, cx, cy, w, d, h, hslColor,
   // Using transparent windows caused see-through artifacts when buildings overlap
   var winColor = shadeColor(hslColor, 20);
 
-  // Number of window columns and rows — scale with building size, capped
-  var colsFrontLeft  = Math.max(1, Math.min(5, Math.floor(w / 8)));
-  var colsFrontRight = Math.max(1, Math.min(5, Math.floor(d / 8)));
-  var rows           = Math.max(1, Math.min(8, Math.floor(h / 10)));
+  // Only draw windows on the 2 visible walls (left and right).
+  // The y=-hd and y=+hd faces are not visible in this isometric projection.
+  var colsPerWall = Math.max(1, Math.min(5, Math.floor(d / 8)));
+  var rows        = Math.max(1, Math.min(8, Math.floor(h / 10)));
 
-  // Window proportions relative to the face cell size
   var winWidthFrac  = 0.35;
   var winHeightFrac = 0.40;
 
-  // ---- Front-left face windows (y = -hd) ------------------------------------
-  // Bottom: plf → prf, Top: plft → prft
-  _drawFaceWindows(ctx, cx, cy, colsFrontLeft, rows,
-    plf, prf, plft, prft, winWidthFrac, winHeightFrac, winColor);
+  // ---- Left wall windows (x = -hw) -----------------------------------------
+  // Bottom edge: plb → plf, Top edge: plbt → plft
+  _drawFaceWindows(ctx, cx, cy, colsPerWall, rows,
+    plb, plf, plbt, plft, winWidthFrac, winHeightFrac, winColor);
 
-  // ---- Front-right face windows (x = +hw) -----------------------------------
-  // Bottom: prf → prb, Top: prft → prbt
-  _drawFaceWindows(ctx, cx, cy, colsFrontRight, rows,
+  // ---- Right wall windows (x = +hw) ----------------------------------------
+  // Bottom edge: prf → prb, Top edge: prft → prbt
+  _drawFaceWindows(ctx, cx, cy, colsPerWall, rows,
     prf, prb, prft, prbt, winWidthFrac, winHeightFrac, winColor);
 }
 

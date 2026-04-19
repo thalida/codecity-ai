@@ -244,7 +244,10 @@ function startRenderLoop(canvas, manifest, config) {
     for (var bi = 0; bi < buildings.length; bi++) {
       var bld = buildings[bi];
 
-      // Project building world coordinates to isometric screen coordinates
+      // Pass world coordinates directly — drawBuilding handles projection
+      // internally via isoProject on the corner offsets, then adds cx/cy.
+      // cx/cy must be in the SAME coordinate space as the projected offsets
+      // (screen space), so we project the building position here.
       var bp = isoProject(bld.x, bld.y, 0);
 
       drawBuilding(
