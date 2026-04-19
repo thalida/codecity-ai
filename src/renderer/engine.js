@@ -134,6 +134,9 @@ function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
   var colorRight = shadeColor(hslColor, -30);   // mid shade (right/lit side)
   var colorLeft  = shadeColor(hslColor, -50);   // darkest (left/shadow side)
 
+  // Ensure all faces are fully opaque (no bleed-through from prior globalAlpha)
+  ctx.globalAlpha = 1;
+
   // ---- Draw left face (shadow) -----------------------------------------------
   // Vertices: plb (back-bottom) → plf (front-bottom) → plft (front-top) → plbt (back-top)
   ctx.beginPath();

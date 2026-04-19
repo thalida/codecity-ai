@@ -332,3 +332,130 @@ canvas {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   user-select: none;
 }
+
+
+/* ── Tree sidebar (left panel) ─────────────────────────────────────────────── */
+
+#tree-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 260px;
+  height: 100%;
+  background: #10111a;
+  border-right: 1px solid #1e2030;
+  display: flex;
+  flex-direction: column;
+  z-index: 90;
+  overflow: hidden;
+}
+
+.tree-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid #1e2030;
+  flex-shrink: 0;
+}
+
+.tree-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c0c4d8;
+  letter-spacing: 0.03em;
+  margin: 0;
+}
+
+.tree-root {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* Scrollbar for tree */
+#tree-sidebar ::-webkit-scrollbar {
+  width: 4px;
+}
+#tree-sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+#tree-sidebar ::-webkit-scrollbar-thumb {
+  background: #252838;
+  border-radius: 4px;
+}
+#tree-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: #363a52;
+}
+#tree-sidebar .tree-root {
+  scrollbar-width: thin;
+  scrollbar-color: #252838 transparent;
+}
+
+.tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+}
+
+.tree-root.tree-list {
+  padding-left: 8px;
+}
+
+.tree-item {
+  margin: 0;
+  padding: 0;
+}
+
+.tree-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.tree-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 8px;
+}
+
+.tree-icon {
+  font-size: 9px;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.tree-icon-dir {
+  color: #5ac8b4;
+}
+
+.tree-icon-file {
+  color: #44485e;
+  font-size: 7px;
+}
+
+.tree-label {
+  font-size: 12px;
+  color: #a0a4bc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-dir > .tree-toggle > .tree-label {
+  color: #c0c4d8;
+  font-weight: 500;
+}
+
+.tree-file > .tree-label {
+  color: #8a8ea0;
+}

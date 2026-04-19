@@ -95,7 +95,7 @@ function getBuildingDimensions(file, config) {
 // -----------------------------------------------------------------------------
 function layoutBlock(dirNode, config) {
   var SPACING       = 6;   // gap between building bounding boxes (world units)
-  var BLOCK_PADDING = 10;  // empty border inside the block perimeter
+  var BLOCK_PADDING = 6;   // empty border inside the block perimeter
 
   // Collect only file children
   var files = [];
@@ -174,6 +174,9 @@ function _computeHitBox(bx, by, w, d, h) {
   var hw = w / 2;
   var hd = d / 2;
 
+  // Project the building's world center to isometric screen space
+  var center = isoProject(bx, by, 0);
+
   var corners = [
     isoProject(-hw, -hd, 0),
     isoProject( hw, -hd, 0),
@@ -195,8 +198,8 @@ function _computeHitBox(bx, by, w, d, h) {
   }
 
   return {
-    x: bx + minSx,
-    y: by + minSy,
+    x: center.sx + minSx,
+    y: center.sy + minSy,
     w: maxSx - minSx,
     h: maxSy - minSy
   };
@@ -290,13 +293,9 @@ function layoutCity(manifest, config) {
     if (blockLayouts[k].blockD > rowDepths[row]) rowDepths[row] = blockLayouts[k].blockD;
   }
 
-  var maxTier = 1;
-  for (var mi = 0; mi < allDirNodes.length; mi++) {
-    var count = allDirNodes[mi].children_count || 0;
-    var tier  = getStreetTier(count, tiers);
-    if (tier > maxTier) maxTier = tier;
-  }
-  var streetW = getStreetWidth(maxTier) + STREET_PADDING * 2;
+  // Use a consistent moderate street width (tier 2) so spacing is uniform
+  // between all blocks instead of varying based on the largest directory.
+  var streetW = getStreetWidth(2) + STREET_PADDING;
 
   // Cumulative offsets
   var colOffsets = [0];
@@ -413,8 +412,11 @@ function _collectSubdirBuildings(dirNode, config, parentW, parentD) {
     if (sub.blockD > maxSubD) maxSubD = sub.blockD;
   }
 
-  var extraW = (allBuildings.length > 0) ? (cursorX - parentW / 2) : 0;
-  var extraD = (maxSubD > parentD) ? (maxSubD - parentD) : 0;
+  // Ensure the parent block expands enough to fully contain all sub-directory
+  // buildings. Add padding so buildings don't sit right at the edge.
+  var SUB_PADDING = 6;
+  var extraW = (allBuildings.length > 0) ? (cursorX - parentW / 2 + SUB_PADDING) : 0;
+  var extraD = (maxSubD > parentD) ? (maxSubD - parentD + SUB_PADDING) : 0;
 
   return {
     buildings: allBuildings,

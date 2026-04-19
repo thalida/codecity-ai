@@ -30,22 +30,31 @@ function showFileSidebar(file) {
     sidebar.removeChild(sidebar.firstChild);
   }
 
-  // ---- Header: name + extension badge ----------------------------------------
+  // ---- Header: name + extension badge + close button -------------------------
   var header = document.createElement('div');
   header.className = 'sidebar-header';
 
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'sidebar-close';
+  closeBtn.type = 'button';
+  closeBtn.textContent = '\u00D7';
+  closeBtn.addEventListener('click', closeSidebar);
+  header.appendChild(closeBtn);
+
+  var titleRow = document.createElement('div');
+  titleRow.className = 'sidebar-title-row';
+
   var nameEl = document.createElement('h2');
-  nameEl.className = 'sidebar-name';
+  nameEl.className = 'sidebar-title';
   nameEl.textContent = file.name || '';
-  header.appendChild(nameEl);
+  titleRow.appendChild(nameEl);
 
   if (file.extension) {
     var badge = document.createElement('span');
-    badge.className = 'sidebar-badge';
+    badge.className = 'ext-badge';
     badge.textContent = file.extension;
 
     // Derive hue from the extension using the globally available getHue function
-    // (colors.js is concatenated before this file). Fall back gracefully if absent.
     var hue = 220; // default blue
     if (typeof getHue === 'function' && typeof _palette !== 'undefined') {
       hue = getHue(file.extension, _palette);
@@ -54,49 +63,78 @@ function showFileSidebar(file) {
     }
     badge.style.backgroundColor = 'hsl(' + hue + ', 60%, 40%)';
     badge.style.color = 'hsl(' + hue + ', 20%, 90%)';
-    header.appendChild(badge);
+    badge.style.borderColor = 'hsl(' + hue + ', 60%, 50%)';
+    titleRow.appendChild(badge);
   }
+
+  header.appendChild(titleRow);
+
+  // Path row inside header
+  var pathRow = _makePathRow(file.path || file.fullPath || '');
+  header.appendChild(pathRow);
 
   sidebar.appendChild(header);
 
-  // ---- Full path with copy button --------------------------------------------
-  var pathRow = _makePathRow(file.path || file.fullPath || '');
-  sidebar.appendChild(pathRow);
+  // ---- Scrollable body -------------------------------------------------------
+  var body = document.createElement('div');
+  body.className = 'sidebar-body';
 
-  // ---- Metadata rows ---------------------------------------------------------
-  var meta = document.createElement('dl');
-  meta.className = 'sidebar-meta';
+  // ---- Stats section ---------------------------------------------------------
+  var statsSection = document.createElement('div');
+  statsSection.className = 'sidebar-section';
 
-  // Size
-  _appendMetaRow(meta, 'Size', formatBytes(file.size || 0));
+  var statsLabel = document.createElement('div');
+  statsLabel.className = 'sidebar-section-label';
+  statsLabel.textContent = 'Stats';
+  statsSection.appendChild(statsLabel);
 
-  // Line count
-  _appendMetaRow(meta, 'Lines', String(file.lines != null ? file.lines : '—'));
+  var statsGrid = document.createElement('div');
+  statsGrid.className = 'sidebar-stats';
 
-  // Dates — prefer git dates; label accordingly
+  _appendStatItem(statsGrid, 'Size', formatBytes(file.size || 0));
+  _appendStatItem(statsGrid, 'Lines', String(file.lines != null ? file.lines : '\u2014'));
+
   var hasGit = file.git && (file.git.created || file.git.modified);
-
   var createdDate   = (file.git && file.git.created)  || file.created  || null;
   var modifiedDate  = (file.git && file.git.modified) || file.modified || null;
-  var dateSource    = hasGit ? '(git)' : '(filesystem)';
+  var dateSource    = hasGit ? 'git' : 'fs';
 
-  _appendMetaRow(meta, 'Created ' + dateSource,
-    createdDate ? formatDate(createdDate) : '—');
-  _appendMetaRow(meta, 'Modified ' + dateSource,
-    modifiedDate ? formatDate(modifiedDate) : '—');
+  _appendStatItem(statsGrid, 'Created', createdDate ? formatDate(createdDate) : '\u2014', dateSource);
+  _appendStatItem(statsGrid, 'Modified', modifiedDate ? formatDate(modifiedDate) : '\u2014', dateSource);
 
-  // Git-only fields
+  statsSection.appendChild(statsGrid);
+  body.appendChild(statsSection);
+
+  // ---- Git section -----------------------------------------------------------
   if (file.git) {
+    var gitSection = document.createElement('div');
+    gitSection.className = 'sidebar-section';
+
+    var gitLabel = document.createElement('div');
+    gitLabel.className = 'sidebar-section-label';
+    gitLabel.textContent = 'Git';
+    gitSection.appendChild(gitLabel);
+
+    var gitGrid = document.createElement('div');
+    gitGrid.className = 'sidebar-stats';
+
     if (file.git.commits != null) {
-      _appendMetaRow(meta, 'Commits', String(file.git.commits));
+      _appendStatItem(gitGrid, 'Commits', String(file.git.commits));
     }
+
+    gitSection.appendChild(gitGrid);
 
     if (file.git.contributors && file.git.contributors.length > 0) {
-      _appendContributors(meta, file.git.contributors);
+      var contribEl = document.createElement('div');
+      contribEl.className = 'sidebar-contributors';
+      contribEl.textContent = file.git.contributors.join(', ');
+      gitSection.appendChild(contribEl);
     }
+
+    body.appendChild(gitSection);
   }
 
-  sidebar.appendChild(meta);
+  sidebar.appendChild(body);
 
   // ---- Slide in --------------------------------------------------------------
   sidebar.classList.add('open');
@@ -122,37 +160,82 @@ function showDirSidebar(dir) {
     sidebar.removeChild(sidebar.firstChild);
   }
 
-  // ---- Header: name ----------------------------------------------------------
+  // ---- Header: name + directory badge + close button -------------------------
   var header = document.createElement('div');
   header.className = 'sidebar-header';
 
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'sidebar-close';
+  closeBtn.type = 'button';
+  closeBtn.textContent = '\u00D7';
+  closeBtn.addEventListener('click', closeSidebar);
+  header.appendChild(closeBtn);
+
+  var titleRow = document.createElement('div');
+  titleRow.className = 'sidebar-title-row';
+
   var nameEl = document.createElement('h2');
-  nameEl.className = 'sidebar-name';
+  nameEl.className = 'sidebar-title';
   nameEl.textContent = dir.name || '';
-  header.appendChild(nameEl);
+  titleRow.appendChild(nameEl);
+
+  var badge = document.createElement('span');
+  badge.className = 'dir-badge';
+  badge.textContent = 'directory';
+  titleRow.appendChild(badge);
+
+  header.appendChild(titleRow);
+
+  // Path row inside header
+  var pathRow = _makePathRow(dir.path || dir.fullPath || '');
+  header.appendChild(pathRow);
 
   sidebar.appendChild(header);
 
-  // ---- Full path with copy button --------------------------------------------
-  var pathRow = _makePathRow(dir.path || dir.fullPath || '');
-  sidebar.appendChild(pathRow);
+  // ---- Scrollable body -------------------------------------------------------
+  var body = document.createElement('div');
+  body.className = 'sidebar-body';
 
-  // ---- Metadata rows ---------------------------------------------------------
-  var meta = document.createElement('dl');
-  meta.className = 'sidebar-meta';
+  // ---- Children section ------------------------------------------------------
+  var childSection = document.createElement('div');
+  childSection.className = 'sidebar-section';
 
-  // Children counts
-  _appendMetaRow(meta, 'Children',
-    _countSummary(dir.children_count, dir.children_file_count, dir.children_dir_count));
+  var childLabel = document.createElement('div');
+  childLabel.className = 'sidebar-section-label';
+  childLabel.textContent = 'Children';
+  childSection.appendChild(childLabel);
 
-  // Descendants counts
-  _appendMetaRow(meta, 'Descendants',
-    _countSummary(dir.descendants_count, dir.descendants_file_count, dir.descendants_dir_count));
+  var childGrid = document.createElement('div');
+  childGrid.className = 'sidebar-stats';
 
-  // Total size of descendants
-  _appendMetaRow(meta, 'Total Size', formatBytes(dir.descendants_size || 0));
+  _appendStatItem(childGrid, 'Total', String(dir.children_count || 0));
+  _appendStatItem(childGrid, 'Files', String(dir.children_file_count || 0));
+  _appendStatItem(childGrid, 'Dirs', String(dir.children_dir_count || 0));
 
-  sidebar.appendChild(meta);
+  childSection.appendChild(childGrid);
+  body.appendChild(childSection);
+
+  // ---- Descendants section ---------------------------------------------------
+  var descSection = document.createElement('div');
+  descSection.className = 'sidebar-section';
+
+  var descLabel = document.createElement('div');
+  descLabel.className = 'sidebar-section-label';
+  descLabel.textContent = 'Descendants';
+  descSection.appendChild(descLabel);
+
+  var descGrid = document.createElement('div');
+  descGrid.className = 'sidebar-stats';
+
+  _appendStatItem(descGrid, 'Total', String(dir.descendants_count || 0));
+  _appendStatItem(descGrid, 'Files', String(dir.descendants_file_count || 0));
+  _appendStatItem(descGrid, 'Dirs', String(dir.descendants_dir_count || 0));
+  _appendStatItem(descGrid, 'Total Size', formatBytes(dir.descendants_size || 0));
+
+  descSection.appendChild(descGrid);
+  body.appendChild(descSection);
+
+  sidebar.appendChild(body);
 
   // ---- Slide in --------------------------------------------------------------
   sidebar.classList.add('open');
@@ -254,7 +337,7 @@ function _makePathRow(pathText) {
   row.appendChild(pathEl);
 
   var copyBtn = document.createElement('button');
-  copyBtn.className = 'sidebar-copy-btn';
+  copyBtn.className = 'copy-btn';
   copyBtn.type = 'button';
   copyBtn.textContent = 'Copy';
   copyBtn.addEventListener('click', function () {
@@ -280,6 +363,38 @@ function _appendMetaRow(dl, label, value) {
   var dd = document.createElement('dd');
   dd.textContent = value;
   dl.appendChild(dd);
+}
+
+/**
+ * Append a stat item (label + value) to a stats grid container.
+ *
+ * @param {Element} container - The .sidebar-stats grid container.
+ * @param {string}  label     - The stat label text.
+ * @param {string}  value     - The stat value text.
+ * @param {string}  [source]  - Optional source tag (e.g. "git", "fs").
+ */
+function _appendStatItem(container, label, value, source) {
+  var item = document.createElement('div');
+  item.className = 'stat-item';
+
+  var labelEl = document.createElement('span');
+  labelEl.className = 'stat-label';
+  labelEl.textContent = label;
+  item.appendChild(labelEl);
+
+  var valueEl = document.createElement('span');
+  valueEl.className = 'stat-value';
+  valueEl.textContent = value;
+
+  if (source) {
+    var sourceTag = document.createElement('span');
+    sourceTag.className = 'stat-source';
+    sourceTag.textContent = '(' + source + ')';
+    valueEl.appendChild(sourceTag);
+  }
+
+  item.appendChild(valueEl);
+  container.appendChild(item);
 }
 
 /**
@@ -353,5 +468,6 @@ if (typeof module !== 'undefined' && module.exports) {
     copyToClipboard,
     formatBytes,
     formatDate,
+    _appendStatItem,
   };
 }

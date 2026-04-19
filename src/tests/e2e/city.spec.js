@@ -80,4 +80,47 @@ test.describe('CodeCity E2E', () => {
     });
     expect(isOpen).toBe(false);
   });
+
+  test('tree sidebar is rendered with folder/file tree', async ({ page }) => {
+    // The tree sidebar should be populated after page load
+    const treeSidebar = page.locator('#tree-sidebar');
+    await expect(treeSidebar).toBeAttached();
+
+    // Should have a tree header with the project name
+    const treeTitle = page.locator('.tree-title');
+    await expect(treeTitle).toBeVisible();
+
+    // Should have tree items (directories and files)
+    const treeItems = page.locator('.tree-item');
+    const count = await treeItems.count();
+    expect(count).toBeGreaterThan(0);
+
+    // Should have at least one directory and one file
+    const treeDirs = page.locator('.tree-dir');
+    const treeFiles = page.locator('.tree-file');
+    expect(await treeDirs.count()).toBeGreaterThan(0);
+    expect(await treeFiles.count()).toBeGreaterThan(0);
+  });
+
+  test('tree sidebar directories are collapsible', async ({ page }) => {
+    // Find the first directory toggle
+    const firstDirToggle = page.locator('.tree-dir .tree-toggle').first();
+    await expect(firstDirToggle).toBeVisible();
+
+    // Click to expand
+    await firstDirToggle.click();
+    await page.waitForTimeout(200);
+
+    // The directory should now be expanded
+    const firstDir = page.locator('.tree-dir').first();
+    const isExpanded = await firstDir.evaluate(el => el.classList.contains('tree-expanded'));
+    expect(isExpanded).toBe(true);
+
+    // Click again to collapse
+    await firstDirToggle.click();
+    await page.waitForTimeout(200);
+
+    const isCollapsed = await firstDir.evaluate(el => el.classList.contains('tree-collapsed'));
+    expect(isCollapsed).toBe(true);
+  });
 });

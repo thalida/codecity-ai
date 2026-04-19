@@ -50,6 +50,68 @@ function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth
 
 
 // -----------------------------------------------------------------------------
+// hitTestBlock(screenX, screenY, blocks, zoomLevel, panX, panY,
+//              canvasWidth, canvasHeight)
+//
+// Tests whether a screen-space click falls within any block's ground plane.
+// Projects the 4 corners of each block and checks if the point is inside
+// the resulting isometric diamond using cross-product winding.
+//
+// Returns the matching block object, or null if no hit.
+// -----------------------------------------------------------------------------
+function hitTestBlock(screenX, screenY, blocks, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
+  var worldX = (screenX - canvasWidth  / 2 - panX) / zoomLevel;
+  var worldY = (screenY - canvasHeight / 2 - panY) / zoomLevel;
+
+  for (var i = blocks.length - 1; i >= 0; i--) {
+    var block = blocks[i];
+    var hw = block.w / 2;
+    var hd = block.d / 2;
+
+    // Project the 4 corners of the block ground plane
+    var bx = block.x;
+    var by = block.y;
+    var sp = isoProject(bx, by, 0);
+    var pfl = isoProject(bx - hw, by - hd, 0);
+    var pfr = isoProject(bx + hw, by - hd, 0);
+    var pbr = isoProject(bx + hw, by + hd, 0);
+    var pbl = isoProject(bx - hw, by + hd, 0);
+
+    // Point-in-quad test using cross product signs
+    if (_pointInQuad(worldX, worldY, pfl, pfr, pbr, pbl)) {
+      return block;
+    }
+  }
+
+  return null;
+}
+
+
+// -----------------------------------------------------------------------------
+// _pointInQuad(px, py, a, b, c, d) -> boolean
+//
+// Tests if point (px, py) is inside the quadrilateral defined by corners
+// a, b, c, d (in order). Each corner has { sx, sy } properties.
+// Uses cross-product winding test.
+// -----------------------------------------------------------------------------
+function _pointInQuad(px, py, a, b, c, d) {
+  var corners = [a, b, c, d];
+  var positive = 0;
+  var negative = 0;
+
+  for (var i = 0; i < 4; i++) {
+    var c1 = corners[i];
+    var c2 = corners[(i + 1) % 4];
+    var cross = (c2.sx - c1.sx) * (py - c1.sy) - (c2.sy - c1.sy) * (px - c1.sx);
+    if (cross > 0) positive++;
+    else if (cross < 0) negative++;
+  }
+
+  return positive === 0 || negative === 0;
+}
+
+
+// -----------------------------------------------------------------------------
 // handleClick(screenX, screenY, buildings, zoomLevel, panX, panY,
 //             canvasWidth, canvasHeight)
 //
@@ -58,7 +120,7 @@ function hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth
 //   Hit on a dir building    -> showDirSidebar(building.file)
 //   Miss (empty space click) -> closeSidebar()
 // -----------------------------------------------------------------------------
-function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight) {
+function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight, blocks) {
   var hit = hitTest(screenX, screenY, buildings, zoomLevel, panX, panY, canvasWidth, canvasHeight);
 
   if (hit) {
@@ -66,6 +128,14 @@ function handleClick(screenX, screenY, buildings, zoomLevel, panX, panY, canvasW
       showDirSidebar(hit.file);
     } else if (hit.file) {
       showFileSidebar(hit.file);
+    }
+  } else if (blocks) {
+    // Check if click falls on a block's ground plane (Issue 6: clickable folders)
+    var blockHit = hitTestBlock(screenX, screenY, blocks, zoomLevel, panX, panY, canvasWidth, canvasHeight);
+    if (blockHit && blockHit.dir) {
+      showDirSidebar(blockHit.dir);
+    } else {
+      closeSidebar();
     }
   } else {
     closeSidebar();
@@ -155,36 +225,32 @@ function startRenderLoop(canvas, manifest, config) {
     for (var g = 0; g < layout.blocks.length; g++) {
       var block = layout.blocks[g];
 
+      // Project block world coordinates to isometric screen coordinates
+      var bp = isoProject(block.x, block.y, 0);
+
       // Draw a slightly lighter ground for the street area (visual distinction)
       drawGround(
         ctx,
-        block.x,
-        block.y,
+        bp.sx,
+        bp.sy,
         block.w,
         block.d,
         'rgba(18, 24, 40, 0.95)',
         'rgba(60, 80, 120, 0.4)'
       );
-
-      // Draw directory label on the block
-      if (block.label) {
-        drawLabel(
-          ctx,
-          block.x,
-          block.y,
-          block.label,
-          'rgba(140, 160, 200, 0.7)'
-        );
-      }
     }
 
     // ---- Buildings (sorted back-to-front) -----------------------------------
     for (var bi = 0; bi < buildings.length; bi++) {
       var bld = buildings[bi];
+
+      // Project building world coordinates to isometric screen coordinates
+      var bp = isoProject(bld.x, bld.y, 0);
+
       drawBuilding(
         ctx,
-        bld.x,
-        bld.y,
+        bp.sx,
+        bp.sy,
         bld.w,
         bld.d,
         bld.h,
@@ -192,11 +258,33 @@ function startRenderLoop(canvas, manifest, config) {
       );
     }
 
+    // ---- Labels (drawn AFTER buildings so they aren't occluded) ---------------
+    for (var li = 0; li < layout.blocks.length; li++) {
+      var lblBlock = layout.blocks[li];
+      if (lblBlock.label) {
+        // Project to isometric screen coordinates, position at the front edge
+        // of the block (high y = front in isometric) so label sits below buildings
+        var lp = isoProject(lblBlock.x, lblBlock.y + lblBlock.d / 2, 0);
+        drawLabel(
+          ctx,
+          lp.sx,
+          lp.sy + 8,
+          lblBlock.label,
+          'rgba(140, 160, 200, 0.7)'
+        );
+      }
+    }
+
     ctx.restore();
   }
 
   // Initial render
   renderCity();
+
+  // Populate the left tree sidebar if available
+  if (typeof showTreeSidebar === 'function') {
+    showTreeSidebar(manifest);
+  }
 
   // -- 6. Event listeners ------------------------------------------------------
 
@@ -246,7 +334,7 @@ function startRenderLoop(canvas, manifest, config) {
       var rect = canvas.getBoundingClientRect();
       var mx   = e.clientX - rect.left;
       var my   = e.clientY - rect.top;
-      handleClick(mx, my, buildings, zoomLevel, panX, panY, W, H);
+      handleClick(mx, my, buildings, zoomLevel, panX, panY, W, H, layout.blocks);
     }
 
     isPanning = false;
@@ -310,6 +398,8 @@ function startRenderLoop(canvas, manifest, config) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     hitTest,
+    hitTestBlock,
+    _pointInQuad,
     handleClick,
     updateCursor,
     startRenderLoop,

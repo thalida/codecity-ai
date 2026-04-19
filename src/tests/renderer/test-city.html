@@ -20,6 +20,7 @@
   </style>
 </head>
 <body>
+  <div id="tree-sidebar"></div>
   <canvas id="city"></canvas>
   <div id="sidebar"></div>
 
@@ -28,6 +29,7 @@
   <script src="../../renderer/colors.js"></script>
   <script src="../../renderer/layout.js"></script>
   <script src="../../renderer/sidebar.js"></script>
+  <script src="../../renderer/tree.js"></script>
   <script src="../../renderer/interactions.js"></script>
 
   <script>
@@ -310,6 +312,11 @@
     // -------------------------------------------------------------------------
     window.addEventListener('load', function () {
       startRenderLoop(document.getElementById('city'), MANIFEST, CONFIG);
+      // Tree sidebar is also initialized inside startRenderLoop, but we call it
+      // here explicitly in case the function ordering differs.
+      if (typeof showTreeSidebar === 'function') {
+        showTreeSidebar(MANIFEST);
+      }
     });
   </script>
 </body>
