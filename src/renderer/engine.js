@@ -83,162 +83,178 @@ function componentsToHsl(h, s, l) {
 // -----------------------------------------------------------------------------
 // drawBuilding(ctx, cx, cy, w, d, h, hslColor)
 //
-// Draws a complete isometric building centered at screen position (cx, cy).
+// Renders a building as a STACK OF FLOORS, where each floor is a complete unit
+// (walls + ceiling slab + windows). The number of floors is derived from the
+// requested building height divided by FLOOR_HEIGHT (a fixed real-world size),
+// so a 30-unit building has 3 floors and a 60-unit building has 6 — every
+// floor in every building is the same size. The actual rendered height is
+// snapped to the nearest multiple of FLOOR_HEIGHT.
 //
-//   ctx      — Canvas 2D context
-//   cx, cy   — Screen-space center of the building base (already translated
-//              for pan/zoom — this is where the building "sits" on the ground)
-//   w        — Building width  (world units, controls left-right span)
-//   d        — Building depth  (world units, controls front-back span)
-//   h        — Building height (world units, controls vertical span)
-//   hslColor — Base HSL color string "hsl(H, S%, L%)"
+// Per floor: walls (front + right) + a thin "ceiling slab" sitting on top,
+// slightly darker than the walls so it reads as a horizontal banding between
+// floors. Each floor's wall has one row of windows. The bottom floor's front
+// wall has the entrance door instead of a window row.
 //
-// Face shading convention:
-//   Top face  — base color (most visible, brightest)
-//   Right face — base color darkened by 30 (mid shade, lit side)
-//   Left face  — base color darkened by 50 (darkest, shadow side)
-//
-// The isometric coordinate system used here:
-//   - World origin is at (0, 0, 0)
-//   - Building occupies world box: x ∈ [-w/2, w/2], y ∈ [-d/2, d/2], z ∈ [0, h]
-//   - All 8 corners are projected via isoProject and the three visible faces
-//     are drawn as filled polygons.
+// Painter's order is implicit: floors are drawn bottom-to-top, and within
+// each floor the front wall, right wall, slab faces, top (only on the topmost
+// floor), windows, and door are drawn in z-order so nothing is overdrawn.
 // -----------------------------------------------------------------------------
 function drawBuilding(ctx, cx, cy, w, d, h, hslColor) {
-  // Half-extents for clarity
   var hw = w / 2;
   var hd = d / 2;
 
-  // Project all 8 corners of the building bounding box.
-  // Naming: p[xyz][xyz] where first letter = x-side (l=left/-x, r=right/+x),
-  // second = y-side (f=front/-y, b=back/+y), third = z-side (b=bottom, t=top).
-  //
-  // Bottom face corners (z = 0)
-  var plf = isoProject(-hw, -hd, 0);  // left-front-bottom
-  var prf = isoProject( hw, -hd, 0);  // right-front-bottom
-  var prb = isoProject( hw,  hd, 0);  // right-back-bottom
-  var plb = isoProject(-hw,  hd, 0);  // left-back-bottom
-
-  // Top face corners (z = h)
-  var plft = isoProject(-hw, -hd, h); // left-front-top
-  var prft = isoProject( hw, -hd, h); // right-front-top
-  var prbt = isoProject( hw,  hd, h); // right-back-top
-  var plbt = isoProject(-hw,  hd, h); // left-back-top
-
-  // Helper: translate a projected point by the screen center offset
   function tx(p) { return cx + p.sx; }
   function ty(p) { return cy + p.sy; }
 
-  // ---- Determine face colors --------------------------------------------------
-  var colorTop   = hslColor;                    // base color (brightest)
-  var colorRight = shadeColor(hslColor, -15);   // lit side (slight shadow)
-  var colorLeft  = shadeColor(hslColor, -30);   // shadow side (darker but still visible)
-
   ctx.globalAlpha = 1;
 
-  // Screen layout of the base diamond:
-  //   plf (-hw,-hd) → screen TOP
-  //   prf (+hw,-hd) → screen RIGHT
-  //   prb (+hw,+hd) → screen BOTTOM
-  //   plb (-hw,+hd) → screen LEFT
-  //
-  // 4 visible faces (back face y=+hd is hidden):
-  //   Left wall:  x = -hw  (plb → plf → plft → plbt)
-  //   Right wall: x = +hw  (prf → prb → prbt → prft)
-  //   Front wall: y = -hd  (plf → prf → prft → plft) — fills gap at top of diamond
-  //   Top:        z = h    (plft → prft → prbt → plbt)
+  // Floor structure — fixed-size floors. Number of floors derived from height.
+  var FLOOR_HEIGHT = 10;
+  var floors = Math.max(1, Math.round(h / FLOOR_HEIGHT));
+  var slabT  = 1;                      // ceiling slab thickness per floor
+  var wallH  = FLOOR_HEIGHT - slabT;   // wall height per floor
 
-  var colorFront = shadeColor(hslColor, -22);
-  var colorBack  = shadeColor(hslColor, -40);  // darkest, rarely visible but seals the shape
+  // Face & accent colors — same hue shifts as before for sun/sky lighting.
+  var colorTop   = hslColor;
+  var colorFront = _shadeAndShiftHue(hslColor, -10,  18);  // lit, warmer
+  var colorRight = _shadeAndShiftHue(hslColor, -32, -18);  // shadow, cooler
+  var slabFront  = _shadeAndShiftHue(hslColor, -18,  18);  // banding stripe (front)
+  var slabRight  = _shadeAndShiftHue(hslColor, -36, -18);  // banding stripe (right)
+  var winColor   = shadeColor(hslColor, 20);
+  var doorColor  = _shadeAndShiftHue(hslColor, -55,   0);
 
-  // ---- Draw back wall (y = +hd) — drawn first so it's behind everything -----
-  ctx.beginPath();
-  ctx.moveTo(tx(prb),  ty(prb));
-  ctx.lineTo(tx(plb),  ty(plb));
-  ctx.lineTo(tx(plbt), ty(plbt));
-  ctx.lineTo(tx(prbt), ty(prbt));
-  ctx.closePath();
-  ctx.fillStyle = colorBack;
-  ctx.fill();
+  var frontCols = Math.max(1, Math.min(5, Math.floor(w / 8)));
+  var rightCols = Math.max(1, Math.min(5, Math.floor(d / 8)));
 
-  // ---- Draw left wall (x = -hw, shadow side) --------------------------------
-  ctx.beginPath();
-  ctx.moveTo(tx(plb),  ty(plb));
-  ctx.lineTo(tx(plf),  ty(plf));
-  ctx.lineTo(tx(plft), ty(plft));
-  ctx.lineTo(tx(plbt), ty(plbt));
-  ctx.closePath();
-  ctx.fillStyle = colorLeft;
-  ctx.fill();
+  // Stack floors bottom → top. Each floor occupies z ∈ [fi·FH, (fi+1)·FH].
+  for (var fi = 0; fi < floors; fi++) {
+    var zWb = fi * FLOOR_HEIGHT;        // wall bottom of this floor
+    var zWt = zWb + wallH;              // wall top (= slab bottom)
+    var zSt = (fi + 1) * FLOOR_HEIGHT;  // slab top (= top of this floor)
 
-  // ---- Draw right wall (x = +hw, lit side) ----------------------------------
-  ctx.beginPath();
-  ctx.moveTo(tx(prf),  ty(prf));
-  ctx.lineTo(tx(prb),  ty(prb));
-  ctx.lineTo(tx(prbt), ty(prbt));
-  ctx.lineTo(tx(prft), ty(prft));
-  ctx.closePath();
-  ctx.fillStyle = colorRight;
-  ctx.fill();
+    // Project all corners we'll need for this floor
+    var wprb  = isoProject( hw,  hd, zWb);
+    var wplb  = isoProject(-hw,  hd, zWb);
+    var wprf  = isoProject( hw, -hd, zWb);
+    var wprbt = isoProject( hw,  hd, zWt);
+    var wplbt = isoProject(-hw,  hd, zWt);
+    var wprft = isoProject( hw, -hd, zWt);
+    var sprbt = isoProject( hw,  hd, zSt);
+    var splbt = isoProject(-hw,  hd, zSt);
+    var sprft = isoProject( hw, -hd, zSt);
 
-  // ---- Draw front wall (y = -hd) — seals gap between left and right ---------
-  ctx.beginPath();
-  ctx.moveTo(tx(plf),  ty(plf));
-  ctx.lineTo(tx(prf),  ty(prf));
-  ctx.lineTo(tx(prft), ty(prft));
-  ctx.lineTo(tx(plft), ty(plft));
-  ctx.closePath();
-  ctx.fillStyle = colorFront;
-  ctx.fill();
+    // ---- Wall: FRONT face (y = +hd) ----
+    ctx.beginPath();
+    ctx.moveTo(tx(wprb),  ty(wprb));
+    ctx.lineTo(tx(wplb),  ty(wplb));
+    ctx.lineTo(tx(wplbt), ty(wplbt));
+    ctx.lineTo(tx(wprbt), ty(wprbt));
+    ctx.closePath();
+    ctx.fillStyle = colorFront;
+    ctx.fill();
 
-  // ---- Draw top face (z = h) ------------------------------------------------
-  ctx.beginPath();
-  ctx.moveTo(tx(plft), ty(plft));
-  ctx.lineTo(tx(prft), ty(prft));
-  ctx.lineTo(tx(prbt), ty(prbt));
-  ctx.lineTo(tx(plbt), ty(plbt));
-  ctx.closePath();
-  ctx.fillStyle = colorTop;
-  ctx.fill();
+    // ---- Wall: RIGHT face (x = +hw) ----
+    ctx.beginPath();
+    ctx.moveTo(tx(wprf),  ty(wprf));
+    ctx.lineTo(tx(wprb),  ty(wprb));
+    ctx.lineTo(tx(wprbt), ty(wprbt));
+    ctx.lineTo(tx(wprft), ty(wprft));
+    ctx.closePath();
+    ctx.fillStyle = colorRight;
+    ctx.fill();
 
-  // ---- Window details --------------------------------------------------------
-  // Draw windows on the right and left faces when the building is tall enough
-  // and wide/deep enough to make windows visible. Conditions:
-  //   h > 14 — building tall enough to have multiple floors
-  //   w > 6 || d > 6 — building wide/deep enough for windows to be readable
-  // (The spec states "w/d > 6" which we interpret as either w or d exceeding 6,
-  //  since a strict ratio check would exclude most moderate buildings.)
-  if (h > 14 && (w > 6 || d > 6)) {
-    _drawBuildingWindows(ctx, cx, cy, w, d, h, hslColor,
-      plf, prf, prb, prbt, prft, plft, plbt, plb);
+    // ---- Ceiling slab: FRONT face (thin band atop the wall) ----
+    ctx.beginPath();
+    ctx.moveTo(tx(wprbt), ty(wprbt));
+    ctx.lineTo(tx(wplbt), ty(wplbt));
+    ctx.lineTo(tx(splbt), ty(splbt));
+    ctx.lineTo(tx(sprbt), ty(sprbt));
+    ctx.closePath();
+    ctx.fillStyle = slabFront;
+    ctx.fill();
+
+    // ---- Ceiling slab: RIGHT face ----
+    ctx.beginPath();
+    ctx.moveTo(tx(wprft), ty(wprft));
+    ctx.lineTo(tx(wprbt), ty(wprbt));
+    ctx.lineTo(tx(sprbt), ty(sprbt));
+    ctx.lineTo(tx(sprft), ty(sprft));
+    ctx.closePath();
+    ctx.fillStyle = slabRight;
+    ctx.fill();
+
+    // ---- Top face: ONLY for the topmost floor (= the building's roof) ----
+    if (fi === floors - 1) {
+      var pTopFront = isoProject(-hw, -hd, zSt);
+      ctx.beginPath();
+      ctx.moveTo(tx(sprft),     ty(sprft));
+      ctx.lineTo(tx(sprbt),     ty(sprbt));
+      ctx.lineTo(tx(splbt),     ty(splbt));
+      ctx.lineTo(tx(pTopFront), ty(pTopFront));
+      ctx.closePath();
+      ctx.fillStyle = colorTop;
+      ctx.fill();
+    }
+
+    // ---- Windows: one row per floor ----
+    // Right face: every floor.
+    _drawFaceWindows(ctx, cx, cy, rightCols, 1,
+      wprf, wprb, wprft, wprbt, 0.40, 0.50, winColor);
+    // Front face: every floor EXCEPT the bottom (which has the door).
+    if (fi > 0) {
+      _drawFaceWindows(ctx, cx, cy, frontCols, 1,
+        wprb, wplb, wprbt, wplbt, 0.40, 0.50, winColor);
+    }
+
+    // ---- Door: bottom floor only, on the front wall ----
+    if (fi === 0 && w > 2) {
+      var doorWFrac = Math.min(0.30, 3.5 / w);
+      var doorHFrac = 0.65;  // tops out just below the window row (which ends at v=0.70)
+      var doorU0 = 0.5 - doorWFrac / 2;
+      var doorU1 = 0.5 + doorWFrac / 2;
+
+      // Bilinear across the bottom floor's front face.
+      // U=0 at wprb (screen-LEFT corner), U=1 at wplb (screen-RIGHT).
+      var doorPt = function (u, v) {
+        var bx   = wprb.sx  + u * (wplb.sx  - wprb.sx);
+        var by   = wprb.sy  + u * (wplb.sy  - wprb.sy);
+        var topx = wprbt.sx + u * (wplbt.sx - wprbt.sx);
+        var topy = wprbt.sy + u * (wplbt.sy - wprbt.sy);
+        return {
+          sx: cx + bx + v * (topx - bx),
+          sy: cy + by + v * (topy - by)
+        };
+      };
+
+      var d00 = doorPt(doorU0, 0);
+      var d10 = doorPt(doorU1, 0);
+      var d11 = doorPt(doorU1, doorHFrac);
+      var d01 = doorPt(doorU0, doorHFrac);
+
+      ctx.beginPath();
+      ctx.moveTo(d00.sx, d00.sy);
+      ctx.lineTo(d10.sx, d10.sy);
+      ctx.lineTo(d11.sx, d11.sy);
+      ctx.lineTo(d01.sx, d01.sy);
+      ctx.closePath();
+      ctx.fillStyle = doorColor;
+      ctx.fill();
+    }
   }
+}
 
-  // ---- Edge highlights -------------------------------------------------------
-  // Subtle white rim lighting along the top edges to separate faces and add
-  // visual crispness on the isometric silhouette.
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-  ctx.lineWidth = 0.75;
 
-  // Vertical front-left edge
-  ctx.beginPath();
-  ctx.moveTo(tx(plf),  ty(plf));
-  ctx.lineTo(tx(plft), ty(plft));
-  ctx.stroke();
-
-  // Vertical front-right edge
-  ctx.beginPath();
-  ctx.moveTo(tx(prf),  ty(prf));
-  ctx.lineTo(tx(prft), ty(prft));
-  ctx.stroke();
-
-  // Top ridge: left → front → right → back (full top perimeter)
-  ctx.beginPath();
-  ctx.moveTo(tx(plbt), ty(plbt));
-  ctx.lineTo(tx(plft), ty(plft));
-  ctx.lineTo(tx(prft), ty(prft));
-  ctx.lineTo(tx(prbt), ty(prbt));
-  ctx.lineTo(tx(plbt), ty(plbt));
-  ctx.stroke();
+// -----------------------------------------------------------------------------
+// _shadeAndShiftHue(hslString, lightnessDelta, hueDelta) → hslString
+//
+// Like shadeColor but also rotates the hue. Used for face shading: positive
+// hueDelta warms (toward yellow/red), negative cools (toward blue/cyan).
+// -----------------------------------------------------------------------------
+function _shadeAndShiftHue(hslString, lightnessDelta, hueDelta) {
+  var c = hslToComponents(hslString);
+  var newL = Math.max(0, Math.min(100, c.l + lightnessDelta));
+  var newH = ((c.h + hueDelta) % 360 + 360) % 360;
+  return componentsToHsl(newH, c.s, newL);
 }
 
 
@@ -295,7 +311,12 @@ function _drawBuildingWindows(ctx, cx, cy, w, d, h, hslColor,
 // which naturally handles the isometric skew of the face.
 // -----------------------------------------------------------------------------
 function _drawFaceWindows(ctx, cx, cy, cols, rows, bl, br, tl, tr,
-  winWidthFrac, winHeightFrac, winColor) {
+  winWidthFrac, winHeightFrac, winColor, startRow) {
+
+  // startRow lets a caller skip the bottom-most N rows while keeping the
+  // overall row spacing intact (so windows on different faces can stay
+  // aligned to the same grid even if some rows are omitted).
+  startRow = startRow || 0;
 
   // Bilinear interpolation on a face defined by raw isoProject corners.
   // U=0 → left edge, U=1 → right edge.
@@ -317,7 +338,7 @@ function _drawFaceWindows(ctx, cx, cy, cols, rows, bl, br, tl, tr,
 
   var margin = 0.1; // fraction of face kept as border (no windows in border zone)
 
-  for (var row = 0; row < rows; row++) {
+  for (var row = startRow; row < rows; row++) {
     for (var col = 0; col < cols; col++) {
       // Cell bounds in [0,1] face-UV space, inset by margin
       var cellU0 = margin + (col     / cols) * (1 - 2 * margin);

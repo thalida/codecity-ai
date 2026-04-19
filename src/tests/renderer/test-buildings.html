@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Building Rendering Test</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #0a0b10;
+      color: #e0e0e0;
+      font-family: 'Inter', -apple-system, sans-serif;
+      overflow: auto;
+    }
+    .toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: #12131a;
+      border-bottom: 1px solid #1e2030;
+      padding: 10px 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      z-index: 10;
+    }
+    .toolbar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-right: 16px;
+    }
+    .toolbar label {
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .toolbar select {
+      background: #1a1c28;
+      color: #e0e0e0;
+      border: 1px solid #2a2c3c;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .legend {
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: #8a8ea0;
+      margin-left: auto;
+    }
+    .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+    .grid {
+      padding-top: 56px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      padding-left: 16px;
+      padding-right: 16px;
+      padding-bottom: 32px;
+    }
+    .cell {
+      background: #10111a;
+      border: 1px solid #1e2030;
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .cell canvas {
+      width: 100%;
+      height: 200px;
+      display: block;
+      background: #0e0f17;
+      border-radius: 4px;
+    }
+    .cell .meta {
+      font-size: 11px;
+      color: #6a7090;
+      margin-top: 6px;
+      font-family: 'SF Mono', monospace;
+      line-height: 1.4;
+    }
+    .cell .title {
+      font-size: 12px;
+      color: #c0c4d8;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>Building Rendering Test</h1>
+    <label>
+      <input type="checkbox" id="debugMode">
+      Debug face colors
+    </label>
+    <label>
+      <input type="checkbox" id="showHidden">
+      Show hidden faces (red/yellow)
+    </label>
+    <label>
+      <input type="checkbox" id="showWindows" checked>
+      Show windows
+    </label>
+    <div class="legend">
+      <span><span class="swatch" style="background:#5ac8b4"></span>Top</span>
+      <span><span class="swatch" style="background:#c7a2ff"></span>Front (visible)</span>
+      <span><span class="swatch" style="background:#6c8aff"></span>Right (visible)</span>
+      <span><span class="swatch" style="background:#ffd93d"></span>Back (HIDDEN)</span>
+      <span><span class="swatch" style="background:#ff6b6b"></span>Left (HIDDEN)</span>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+
+  <script src="../../renderer/engine.js"></script>
+
+  <script>
+    // -------------------------------------------------------------------------
+    // Debug face colors — distinct hues so each face is unmistakable.
+    //
+    // Naming convention (user-facing, matches the building as the viewer sees it):
+    //   FRONT — the visible face on the screen-LEFT side of the silhouette
+    //   LEFT  — the visible face on the screen-RIGHT side of the silhouette
+    //   BACK  — hidden face, opposite of FRONT
+    //   RIGHT — hidden face, opposite of LEFT
+    //
+    // Production code only draws TOP + FRONT + LEFT. The other two (BACK, RIGHT)
+    // are hidden in this isometric projection and only drawn when "Show hidden
+    // faces" is on, in yellow/red, to verify they overlap visible faces (which
+    // is why drawing them in production was the original bug).
+    // -------------------------------------------------------------------------
+    var DEBUG = {
+      top:    '#5ac8b4',   // teal
+      front:  '#c7a2ff',   // purple (screen-LEFT, visible)
+      right:  '#6c8aff',   // blue   (screen-RIGHT, visible)
+      back:   '#ffd93d',   // yellow (HIDDEN)
+      left:   '#ff6b6b',   // red    (HIDDEN)
+      window: 'rgba(255,255,255,0.85)'
+    };
+
+    // -------------------------------------------------------------------------
+    // drawBuildingDebug — same geometry as engine.drawBuilding but uses fixed
+    // unique colors per face so each face is visually identifiable.
+    // -------------------------------------------------------------------------
+    function drawBuildingDebug(ctx, cx, cy, w, d, h, opts) {
+      opts = opts || {};
+      var hw = w / 2, hd = d / 2;
+
+      var plf  = isoProject(-hw, -hd, 0);
+      var prf  = isoProject( hw, -hd, 0);
+      var prb  = isoProject( hw,  hd, 0);
+      var plb  = isoProject(-hw,  hd, 0);
+      var plft = isoProject(-hw, -hd, h);
+      var prft = isoProject( hw, -hd, h);
+      var prbt = isoProject( hw,  hd, h);
+      var plbt = isoProject(-hw,  hd, h);
+
+      function tx(p) { return cx + p.sx; }
+      function ty(p) { return cy + p.sy; }
+
+      function face(corners, color) {
+        ctx.beginPath();
+        ctx.moveTo(tx(corners[0]), ty(corners[0]));
+        for (var i = 1; i < corners.length; i++) {
+          ctx.lineTo(tx(corners[i]), ty(corners[i]));
+        }
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = 1;
+
+      // Painter order: farthest face first.
+      // If "show hidden" is on, draw hidden faces FIRST so the visible faces
+      // should still cover them — if you can see yellow/red anywhere, that
+      // face is wrongly exposed.
+      if (opts.showHidden) {
+        // Hidden BACK face (y = -hd in code) — upper-RIGHT area of silhouette
+        face([plf, prf, prft, plft], DEBUG.back);
+        // Hidden LEFT face (x = -hw in code) — upper-LEFT area of silhouette
+        face([plb, plf, plft, plbt], DEBUG.left);
+      }
+
+      // Visible FRONT face (screen-LEFT) — at y = +hd in world coords
+      face([prb, plb, plbt, prbt], DEBUG.front);
+
+      // Visible RIGHT face (screen-RIGHT) — at x = +hw in world coords
+      face([prf, prb, prbt, prft], DEBUG.right);
+
+      // Visible TOP face (z = h)
+      face([plft, prft, prbt, plbt], DEBUG.top);
+
+      if (opts.showWindows && h > 14 && (w > 6 || d > 6)) {
+        var rows = Math.max(1, Math.min(8, Math.floor(h / 10)));
+
+        // Windows on the FRONT face (screen-LEFT)
+        var frontCols = Math.max(1, Math.min(5, Math.floor(w / 8)));
+        _drawFaceWindows(ctx, cx, cy, frontCols, rows,
+          prb, plb, prbt, plbt, 0.35, 0.40, DEBUG.window);
+
+        // Windows on the LEFT face (screen-RIGHT)
+        var leftCols = Math.max(1, Math.min(5, Math.floor(d / 8)));
+        _drawFaceWindows(ctx, cx, cy, leftCols, rows,
+          prf, prb, prft, prbt, 0.35, 0.40, DEBUG.window);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test cases: variety of sizes, heights, shapes, and "ages" (HSL colors)
+    // -------------------------------------------------------------------------
+    var TESTS = [
+      // --- Sizes (square base) ---
+      { title: "Tiny",          w:  6, d:  6, h:  8,  hue: 220, sat: 60, light: 50 },
+      { title: "Small square",  w: 10, d: 10, h: 20,  hue: 220, sat: 60, light: 50 },
+      { title: "Medium square", w: 16, d: 16, h: 30,  hue: 220, sat: 60, light: 50 },
+      { title: "Large square",  w: 24, d: 24, h: 40,  hue: 220, sat: 60, light: 50 },
+      { title: "Huge square",   w: 32, d: 32, h: 60,  hue: 220, sat: 60, light: 50 },
+
+      // --- Heights ---
+      { title: "Pancake",        w: 20, d: 20, h:  4,  hue: 150, sat: 60, light: 50 },
+      { title: "Short",          w: 16, d: 16, h: 12,  hue: 150, sat: 60, light: 50 },
+      { title: "Medium",         w: 14, d: 14, h: 35,  hue: 150, sat: 60, light: 50 },
+      { title: "Tall",           w: 12, d: 12, h: 70,  hue: 150, sat: 60, light: 50 },
+      { title: "Skyscraper",     w: 10, d: 10, h: 110, hue: 150, sat: 60, light: 50 },
+
+      // --- Rectangular shapes ---
+      { title: "Wide (w>d)",     w: 30, d: 12, h: 25,  hue:  15, sat: 70, light: 50 },
+      { title: "Deep (d>w)",     w: 12, d: 30, h: 25,  hue:  15, sat: 70, light: 50 },
+      { title: "Long & low",     w: 35, d:  8, h: 14,  hue:  15, sat: 70, light: 50 },
+      { title: "Slab",           w:  8, d: 35, h: 50,  hue:  15, sat: 70, light: 50 },
+
+      // --- "Ages" via HSL variation (simulating new vs. old files) ---
+      { title: "New & vivid",    w: 16, d: 16, h: 30,  hue: 275, sat: 100, light: 70 },
+      { title: "Recent",         w: 16, d: 16, h: 30,  hue: 275, sat:  85, light: 60 },
+      { title: "Mature",         w: 16, d: 16, h: 30,  hue: 275, sat:  60, light: 50 },
+      { title: "Old & faded",    w: 16, d: 16, h: 30,  hue: 275, sat:  35, light: 35 },
+      { title: "Ancient",        w: 16, d: 16, h: 30,  hue: 275, sat:  20, light: 25 },
+
+      // --- Edge cases ---
+      { title: "Min height",     w: 16, d: 16, h:  4,  hue:  50, sat: 80, light: 55 },
+      { title: "Max height",     w: 16, d: 16, h: 120, hue:  50, sat: 80, light: 55 },
+      { title: "Min width",      w:  6, d: 16, h: 30,  hue:  50, sat: 80, light: 55 },
+      { title: "Max width",      w: 40, d: 16, h: 30,  hue:  50, sat: 80, light: 55 },
+
+      // --- Stress: very tall thin towers ---
+      { title: "Needle",         w:  6, d:  6, h: 100, hue: 185, sat: 90, light: 60 },
+      { title: "Pillar",         w:  8, d:  8, h:  80, hue: 185, sat: 90, light: 60 },
+    ];
+
+    // -------------------------------------------------------------------------
+    // Render each test cell
+    // -------------------------------------------------------------------------
+    var debugChk    = document.getElementById('debugMode');
+    var hiddenChk   = document.getElementById('showHidden');
+    var windowsChk  = document.getElementById('showWindows');
+    var grid        = document.getElementById('grid');
+
+    function buildGrid() {
+      grid.innerHTML = '';
+
+      for (var i = 0; i < TESTS.length; i++) {
+        var t = TESTS[i];
+
+        var cell = document.createElement('div');
+        cell.className = 'cell';
+
+        var titleEl = document.createElement('div');
+        titleEl.className = 'title';
+        titleEl.textContent = t.title;
+        cell.appendChild(titleEl);
+
+        var canvas = document.createElement('canvas');
+        cell.appendChild(canvas);
+
+        var meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = 'w=' + t.w + ' d=' + t.d + ' h=' + t.h +
+                           ' · hsl(' + t.hue + ',' + t.sat + '%,' + t.light + '%)';
+        cell.appendChild(meta);
+
+        grid.appendChild(cell);
+
+        renderCell(canvas, t);
+      }
+    }
+
+    function renderCell(canvas, t) {
+      var dpr  = window.devicePixelRatio || 1;
+      var rect = canvas.getBoundingClientRect();
+      canvas.width  = rect.width  * dpr;
+      canvas.height = rect.height * dpr;
+      var ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      var W = rect.width;
+      var H = rect.height;
+
+      // Auto-fit: compute building bounding box in screen units,
+      // then scale to fit canvas with margin.
+      var hw = t.w / 2, hd = t.d / 2;
+      var corners = [
+        isoProject(-hw, -hd, 0), isoProject( hw, -hd, 0),
+        isoProject( hw,  hd, 0), isoProject(-hw,  hd, 0),
+        isoProject(-hw, -hd, t.h), isoProject( hw, -hd, t.h),
+        isoProject( hw,  hd, t.h), isoProject(-hw,  hd, t.h),
+      ];
+      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (var i = 0; i < corners.length; i++) {
+        if (corners[i].sx < minX) minX = corners[i].sx;
+        if (corners[i].sx > maxX) maxX = corners[i].sx;
+        if (corners[i].sy < minY) minY = corners[i].sy;
+        if (corners[i].sy > maxY) maxY = corners[i].sy;
+      }
+      var bbW = maxX - minX, bbH = maxY - minY;
+      var margin = 24;
+      var scale = Math.min((W - margin) / bbW, (H - margin) / bbH);
+
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(scale, scale);
+      // Center the building's screen-space bounding box
+      ctx.translate(-(minX + maxX) / 2, -(minY + maxY) / 2);
+
+      var opts = {
+        showHidden:  hiddenChk.checked,
+        showWindows: windowsChk.checked,
+      };
+
+      if (debugChk.checked) {
+        drawBuildingDebug(ctx, 0, 0, t.w, t.d, t.h, opts);
+      } else {
+        var hslColor = 'hsl(' + t.hue + ', ' + t.sat + '%, ' + t.light + '%)';
+        drawBuilding(ctx, 0, 0, t.w, t.d, t.h, hslColor);
+      }
+    }
+
+    debugChk.addEventListener('change', buildGrid);
+    hiddenChk.addEventListener('change', buildGrid);
+    windowsChk.addEventListener('change', buildGrid);
+    window.addEventListener('resize', buildGrid);
+
+    buildGrid();
+  </script>
+</body>
+</html>
