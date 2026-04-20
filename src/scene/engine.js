@@ -516,9 +516,11 @@ function createStreetLabels(street) {
   var worldH = street.width * 0.45;
   var worldW = worldH * info.aspect;
 
-  // Repetition: one copy per ~120 world units, min 1. Big cities get many
-  // labels along long streets so there's always one near the viewport.
-  var spacing = 120;
+  // Repetition: spacing scales with the label's own rendered width so long
+  // names ("codecity-ai") don't pile up on wide streets while short names
+  // ("src") still repeat often enough to always have one near the viewport.
+  // A minimum floor keeps tiny labels from repeating every few units.
+  var spacing = Math.max(worldW * 3.5, 200);
   var count   = Math.max(1, Math.floor(street.length / spacing));
 
   var labels = [];
