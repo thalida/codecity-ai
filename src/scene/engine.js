@@ -274,34 +274,62 @@ function _flatMat(color, renderOrderLayer) {
 
 
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// _buildStadiumGeometry(length, width, orientation) -> THREE.ShapeGeometry
+//
+// A stadium/pill shape: a rectangle with two full semicircular end caps of
+// radius width/2. The shape lives in the XY plane and is meant to be rotated
+// -PI/2 around X to lie flat on the world XZ plane. `orientation` picks
+// which 2D axis the long direction runs along so the street's long axis
+// ends up along world-X or world-Z.
+// -----------------------------------------------------------------------------
+function _buildStadiumGeometry(length, width, orientation) {
+  var r = width / 2;
+  var halfStraight = Math.max(0, length / 2 - r);
+  var shape = new THREE.Shape();
+  if (orientation === 'x') {
+    shape.moveTo(-halfStraight, -r);
+    shape.lineTo(halfStraight, -r);
+    shape.absarc(halfStraight, 0, r, -Math.PI / 2, Math.PI / 2, false);
+    shape.lineTo(-halfStraight, r);
+    shape.absarc(-halfStraight, 0, r, Math.PI / 2, 3 * Math.PI / 2, false);
+  } else {
+    shape.moveTo(-r, -halfStraight);
+    shape.absarc(0, -halfStraight, r, Math.PI, 2 * Math.PI, false);
+    shape.lineTo(r, halfStraight);
+    shape.absarc(0, halfStraight, r, 0, Math.PI, false);
+  }
+  return new THREE.ShapeGeometry(shape, 16);
+}
+
+
+// -----------------------------------------------------------------------------
 // createStreetMesh(street) -> THREE.Group
 //
-// A street is two stacked flat planes — sidewalk (wider) and asphalt (narrower).
-// The group's userData.street points back to the layout street so raycaster
-// hits can recover the directory this street represents.
+// A street is two stacked flat pill-shaped slabs — sidewalk (outer) and
+// asphalt (inner). The asphalt pill is sized and positioned so its cap
+// circle is CONCENTRIC with the sidewalk cap circle, which keeps the
+// visible sidewalk strip a uniform width all the way around the perimeter
+// (including around the curved end caps). The group's userData.street
+// points back to the layout street so raycaster hits can recover the
+// directory this street represents.
 // -----------------------------------------------------------------------------
 function createStreetMesh(street, yBase) {
   var group = new THREE.Group();
   var asphaltFrac = 0.6;
-  // End caps: small sidewalk-only terminators at each end so streets don't
-  // trail off into empty space. Kept subtle (~2 units) — larger caps read
-  // as dead-end "rooms" rather than a clean street end.
-  var endCap = Math.min(2, street.width * 0.2);
-  var asphaltLength = Math.max(street.length * 0.2, street.length - 2 * endCap);
-
-  var swW, swD, asW, asD;
-  if (street.orientation === 'x') {
-    swW = street.length;   swD = street.width;
-    asW = asphaltLength;   asD = street.width * asphaltFrac;
-  } else {
-    swW = street.width;            swD = street.length;
-    asW = street.width * asphaltFrac;  asD = asphaltLength;
-  }
+  var asphaltWidth = street.width * asphaltFrac;
+  // For concentric caps the asphalt must be shorter by exactly the sidewalk
+  // strip width (= (width - asphaltWidth) / 2 per side). That makes the two
+  // cap circles share a center and the annular sidewalk strip keep constant
+  // thickness around the curve. Floor at a small fraction of length so very
+  // short streets still show some asphalt.
+  var sidewalkStrip = (street.width - asphaltWidth) / 2;
+  var asphaltLength = Math.max(street.length * 0.2, street.length - 2 * sidewalkStrip);
 
   // Sidewalk — the clickable target for street picking. renderOrder=1
   // means all sidewalks across the city draw first, as a single bottom layer.
   var sidewalk = new THREE.Mesh(
-    new THREE.PlaneGeometry(swW, swD),
+    _buildStadiumGeometry(street.length, street.width, street.orientation),
     _flatMat(STREET_COLOR_SIDEWALK, 1)
   );
   sidewalk.rotation.x = -Math.PI / 2;
@@ -313,7 +341,7 @@ function createStreetMesh(street, yBase) {
 
   // Asphalt — narrower, always draws on top of every sidewalk (renderOrder=3).
   var asphalt = new THREE.Mesh(
-    new THREE.PlaneGeometry(asW, asD),
+    _buildStadiumGeometry(asphaltLength, asphaltWidth, street.orientation),
     _flatMat(STREET_COLOR_ASPHALT, 3)
   );
   asphalt.rotation.x = -Math.PI / 2;
@@ -331,11 +359,12 @@ function createStreetMesh(street, yBase) {
 // -----------------------------------------------------------------------------
 // createRootGem(street) -> THREE.Group
 //
-// A floating, slowly spinning octahedron gem hovering over a tiny neon plaza
-// that connects to the root street's origin end. Each of the 8 gem faces
-// gets a different vibrant color (per-vertex colors on a non-indexed
-// octahedron). Render loop drives the rotation and a subtle bob via
-// `userData.gem`.
+// A floating, slowly spinning octahedron gem hovering over the ORIGIN-END
+// cap of the root street — the layout reserves dead space at that end so
+// the rounded cap area is clear of buildings and the road itself acts as
+// the gem's plaza (no separate pad mesh). Each of the 8 gem faces gets a
+// different vibrant color (per-vertex colors on a non-indexed octahedron).
+// Render loop drives the rotation and a subtle bob via `userData.gem`.
 // -----------------------------------------------------------------------------
 // 8 gem faces in a PRISMATIC palette — high-saturation hues spaced around the
 // color wheel so no face blends with nearby building colors and the gem reads
@@ -355,37 +384,24 @@ var _GEM_EDGES   = 0xf0f0ff;   // near-white — neutral separator between vivid
 function createRootGem(street) {
   var group = new THREE.Group();
 
-  // Size scales with the street so the gem stays proportionate to the city.
-  // Plaza matches the street width EXACTLY so it reads as a continuation of
-  // the road.
-  var plazaSize = street.width;
-  var radius = Math.min(plazaSize * 0.35, street.width * 0.45);
+  // Gem size scales with the street's width. The layout reserves extra dead
+  // space at the root street's origin end (ROOT_GEM_PAD), so the origin cap
+  // has no buildings overlapping it — the road's rounded cap IS the plaza.
+  var radius = street.width * 0.35;
   if (radius < 5) radius = 5;
   var hoverY = radius + street.width * 0.3;
 
-  // Anchor the plaza so its inner edge is flush with the road's origin end,
-  // and float the gem above the plaza's center. This keeps everything
-  // tightly coupled to the start of the road.
+  // Gem hovers at the center of the road's origin-end cap. For a stadium of
+  // length L and width W, the origin cap circle is centered at a distance
+  // W/2 inward from the tip.
   var gemX, gemZ;
   if (street.orientation === 'x') {
-    gemX = street.x - street.length / 2 - plazaSize / 2;
+    gemX = street.x - street.length / 2 + street.width / 2;
     gemZ = street.y;
   } else {
     gemX = street.x;
-    gemZ = street.y - street.length / 2 - plazaSize / 2;
+    gemZ = street.y - street.length / 2 + street.width / 2;
   }
-
-  // ---- Plaza: single sidewalk-colored pad -----------------------------------
-  // Reads as a continuation of the sidewalk so the gem is the only thing
-  // drawing the eye.
-  var plaza = new THREE.Mesh(
-    new THREE.PlaneGeometry(plazaSize, plazaSize),
-    _flatMat(STREET_COLOR_SIDEWALK, 1)
-  );
-  plaza.rotation.x = -Math.PI / 2;
-  plaza.position.set(gemX, 0, gemZ);
-  plaza.renderOrder = 1;
-  group.add(plaza);
 
   // ---- Gem: per-face colored octahedron -------------------------------------
   var geo = new THREE.OctahedronGeometry(radius, 0);

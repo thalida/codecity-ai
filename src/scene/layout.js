@@ -56,6 +56,14 @@ var BLDG_STREET_GAP   = 4;   // clear space between street's edge and building
 var PARENT_JOIN_PAD   = 3;   // extra clear space at the start/end of a child street
 var ROOT_END_PAD      = 8;   // fallback pad for the root street (has no parent)
 
+// Root gem landing zone. The gem's center sits at the origin-end cap center
+// (streetWidth/2 from the tip) and its radius is ROOT_GEM_RADIUS_FRAC of the
+// street width (mirrors engine.js), so its far edge is at
+// (0.5 + ROOT_GEM_RADIUS_FRAC) * streetWidth from the tip. Buildings must
+// start past that, plus ROOT_GEM_CLEARANCE of breathing room.
+var ROOT_GEM_RADIUS_FRAC = 0.35;
+var ROOT_GEM_CLEARANCE   = 20;
+
 
 // -----------------------------------------------------------------------------
 // layoutCity(manifest, config) -> { streets, buildings, blocks }
@@ -199,6 +207,13 @@ function _layoutDir(dir, config, originX, originY, orientation, result, parentSt
   var endPad        = parentStreetWidth
     ? parentStreetWidth / 2 + PARENT_JOIN_PAD
     : ROOT_END_PAD;
+  // Root gets an asymmetric extra pad at its ORIGIN end only. That cap area
+  // is kept clear of buildings so the root gem can float over it — the road
+  // itself serves as the gem's plaza. Pad = half-width (cap center) + gem
+  // radius + clearance. Non-root streets use endPad on both ends as before.
+  var originPad = !parentStreetWidth
+    ? Math.max(endPad, myStreetWidth * (0.5 + ROOT_GEM_RADIUS_FRAC) + ROOT_GEM_CLEARANCE)
+    : endPad;
 
   // ---- Sort children alphabetically (files + dirs intermingled) -----------
   var children = (dir.children || [])
@@ -239,8 +254,8 @@ function _layoutDir(dir, config, originX, originY, orientation, result, parentSt
   //                                most-recent subdir, and subsequent files
   //                                stay on that side so they pack tight
   //                                (no forced zig-zagging).
-  var cursor = [endPad, endPad];
-  var alphaCursor = endPad;
+  var cursor = [originPad, originPad];
+  var alphaCursor = originPad;
   var subdirCount = 0;
   var preferredFileSide = 0;
   var fileBuildings = [];
@@ -365,7 +380,7 @@ function _layoutDir(dir, config, originX, originY, orientation, result, parentSt
   maxCursor += endPad;
 
   // ---- Compute street length and add street ------------------------------
-  var streetLength = Math.max(maxCursor, endPad * 2);
+  var streetLength = Math.max(maxCursor, originPad + endPad);
 
   var streetCenterX = originX;
   var streetCenterY = originY;
