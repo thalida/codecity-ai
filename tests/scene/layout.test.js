@@ -112,11 +112,11 @@ describe('getBuildingDimensions', () => {
 
 // ---- layoutCity ----
 describe('layoutCity', () => {
-  it('returns { streets, buildings, blocks } arrays', () => {
+  it('returns { streets, buildings, paths } arrays', () => {
     const layout = layoutCity({ tree: TEST_TREE }, TEST_CONFIG);
     expect(Array.isArray(layout.streets)).toBe(true);
     expect(Array.isArray(layout.buildings)).toBe(true);
-    expect(Array.isArray(layout.blocks)).toBe(true);  // legacy field, empty
+    expect(Array.isArray(layout.paths)).toBe(true);
   });
 
   it('has at least 1 street', () => {

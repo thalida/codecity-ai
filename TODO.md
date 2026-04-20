@@ -7,8 +7,7 @@
 - [ ] billboard media files
 - [ ] treeview interact with scene rendering
 - [ ] building / rendering data in sidebar
-- [ ] commiters as people (?)
-- [ ] clean up blocks and hitTestBlock
-- [ ] rounded street ends
-- [ ] rename .dev to build or dist
+- [x] clean up blocks and hitTestBlock
+- [x] rounded street ends
+- [x] rename .dev to build or dist
 - [ ] Update README.md

@@ -66,7 +66,7 @@ var ROOT_GEM_CLEARANCE   = 20;
 
 
 // -----------------------------------------------------------------------------
-// layoutCity(manifest, config) -> { streets, buildings, blocks }
+// layoutCity(manifest, config) -> { streets, buildings, paths }
 //
 // Top-level layout function. Walks the directory tree and produces a STREET
 // NETWORK in world coordinates: each directory becomes a street, files line
@@ -76,13 +76,13 @@ var ROOT_GEM_CLEARANCE   = 20;
 // Return shape:
 //   streets:   [{ x, y, length, width, orientation, label, dir }]
 //   buildings: [{ x, y, w, d, h, color, file, orient, hitBox: { x, y, w, h } }]
-//   blocks:    []  (kept for backward-compat with hit-testing code; unused)
+//   paths:     [{ x, y, w, d }]
 //
 // `color` starts as null — the renderer must call getBuildingColor before drawing.
 // -----------------------------------------------------------------------------
 export function layoutCity(manifest, config) {
   var tree = manifest.tree || manifest;
-  var result = { streets: [], buildings: [], paths: [], blocks: [] };
+  var result = { streets: [], buildings: [], paths: [] };
 
   _layoutDir(tree, config, 0, 0, 'x', result);
 
