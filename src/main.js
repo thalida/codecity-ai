@@ -70,6 +70,7 @@ function startRenderLoop(canvas, manifest, config) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.screenSpacePanning = false;
+  controls.zoomToCursor = true;
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.minDistance = 30;
   controls.maxDistance = dist * 4;
