@@ -1,18 +1,39 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getStreetTier,
   getStreetWidth,
   getBuildingDimensions,
   layoutCity,
   sortForRendering,
 } from '../../src/scene/layout.js';
 
+const TEST_TIERS = [
+  { min_descendants: 0,  width: 10 },
+  { min_descendants: 4,  width: 16 },
+  { min_descendants: 9,  width: 24 },
+  { min_descendants: 16, width: 36 },
+  { min_descendants: 31, width: 52 }
+];
+
 const TEST_CONFIG = {
-  street_tiers: [3, 8, 15, 30],
-  building: { min_height: 4, max_height: 120, min_width: 6, max_width: 40 },
-  saturation: { min: 20, max: 100 },
-  lightness: { min: 25, max: 70 },
-  palette: { ".ts": 215, ".js": 220, ".md": 275, ".json": 50, ".png": 30 },
+  layout: {
+    child_gap: 5,
+    bldg_street_gap: 4,
+    path_width: 3,
+    street_tiers: TEST_TIERS
+  },
+  building: {
+    lines_per_floor: 20,
+    min_floors: 1,
+    max_floors: 30,
+    floor_height: 10,
+    byte_ceiling: 10485760,
+    min_width: 6,
+    max_width: 40,
+    saturation: { min: 20, max: 100 },
+    lightness:  { min: 25, max: 70 },
+    hue_ext_map: { ".ts": 215, ".js": 220, ".md": 275, ".json": 50, ".png": 30 }
+  },
+  scene: { asphalt: '#1a1d28', sidewalk: '#2a3050', ground: '#0a0b10' }
 };
 
 const TEST_TREE = {
@@ -43,69 +64,71 @@ const TEST_TREE = {
   ]
 };
 
-// ---- getStreetTier ----
-describe('getStreetTier', () => {
-  const tiers = TEST_CONFIG.street_tiers; // [3, 8, 15, 30]
-
-  it('maps count 0 to tier 1', () => expect(getStreetTier(0, tiers)).toBe(1));
-  it('maps count 3 to tier 1', () => expect(getStreetTier(3, tiers)).toBe(1));
-  it('maps count 4 to tier 2', () => expect(getStreetTier(4, tiers)).toBe(2));
-  it('maps count 8 to tier 2', () => expect(getStreetTier(8, tiers)).toBe(2));
-  it('maps count 9 to tier 3', () => expect(getStreetTier(9, tiers)).toBe(3));
-  it('maps count 15 to tier 3', () => expect(getStreetTier(15, tiers)).toBe(3));
-  it('maps count 16 to tier 4', () => expect(getStreetTier(16, tiers)).toBe(4));
-  it('maps count 30 to tier 4', () => expect(getStreetTier(30, tiers)).toBe(4));
-  it('maps count 31 to tier 5', () => expect(getStreetTier(31, tiers)).toBe(5));
-  it('maps count 100 to tier 5', () => expect(getStreetTier(100, tiers)).toBe(5));
-});
-
 // ---- getStreetWidth ----
 describe('getStreetWidth', () => {
-  it('tier 1 returns 10', () => expect(getStreetWidth(1)).toBe(10));
-  it('tier 2 returns 16', () => expect(getStreetWidth(2)).toBe(16));
-  it('tier 3 returns 24', () => expect(getStreetWidth(3)).toBe(24));
-  it('tier 4 returns 36', () => expect(getStreetWidth(4)).toBe(36));
-  it('tier 5 returns 52', () => expect(getStreetWidth(5)).toBe(52));
-  it('tier 0 clamps to tier 1', () => expect(getStreetWidth(0)).toBe(10));
-  it('tier 6 clamps to tier 5', () => expect(getStreetWidth(6)).toBe(52));
-  it('each tier is strictly wider than the previous', () => {
-    expect(getStreetWidth(2)).toBeGreaterThan(getStreetWidth(1));
-    expect(getStreetWidth(3)).toBeGreaterThan(getStreetWidth(2));
-    expect(getStreetWidth(4)).toBeGreaterThan(getStreetWidth(3));
-    expect(getStreetWidth(5)).toBeGreaterThan(getStreetWidth(4));
+  it('count 0 → first tier width (10)',   () => expect(getStreetWidth(0,   TEST_TIERS)).toBe(10));
+  it('count 3 → first tier width (10)',   () => expect(getStreetWidth(3,   TEST_TIERS)).toBe(10));
+  it('count 4 → second tier width (16)',  () => expect(getStreetWidth(4,   TEST_TIERS)).toBe(16));
+  it('count 8 → second tier width (16)',  () => expect(getStreetWidth(8,   TEST_TIERS)).toBe(16));
+  it('count 9 → third tier width (24)',   () => expect(getStreetWidth(9,   TEST_TIERS)).toBe(24));
+  it('count 15 → third tier width (24)',  () => expect(getStreetWidth(15,  TEST_TIERS)).toBe(24));
+  it('count 16 → fourth tier width (36)', () => expect(getStreetWidth(16,  TEST_TIERS)).toBe(36));
+  it('count 30 → fourth tier width (36)', () => expect(getStreetWidth(30,  TEST_TIERS)).toBe(36));
+  it('count 31 → fifth tier width (52)',  () => expect(getStreetWidth(31,  TEST_TIERS)).toBe(52));
+  it('count 100 → fifth tier width (52)', () => expect(getStreetWidth(100, TEST_TIERS)).toBe(52));
+  it('falls back to built-in tiers if none provided', () => {
+    expect(getStreetWidth(0)).toBe(10);
+    expect(getStreetWidth(100)).toBe(52);
   });
 });
 
 // ---- getBuildingDimensions ----
 describe('getBuildingDimensions', () => {
-  it('uses log scale — returns min dimensions for null/zero data', () => {
+  it('null/zero data returns 1 floor and min width', () => {
     const dim = getBuildingDimensions({ lines: null, size: null }, TEST_CONFIG);
-    expect(dim.h).toBe(4);
+    expect(dim.floors).toBe(1);
+    expect(dim.h).toBe(10);
     expect(dim.w).toBe(6);
   });
 
-  it('returns values within configured min/max', () => {
-    const dim = getBuildingDimensions({ lines: 80, size: 2000 }, TEST_CONFIG);
-    expect(dim.h).toBeGreaterThan(4);
-    expect(dim.h).toBeLessThan(120);
-    expect(dim.w).toBeGreaterThan(6);
-    expect(dim.w).toBeLessThan(40);
+  it('ceil(lines / lines_per_floor) floors — 1 to 20 lines is 1 floor', () => {
+    expect(getBuildingDimensions({ lines: 1,  size: 100 }, TEST_CONFIG).floors).toBe(1);
+    expect(getBuildingDimensions({ lines: 20, size: 100 }, TEST_CONFIG).floors).toBe(1);
   });
 
-  it('respects max dimensions at reference ceilings', () => {
+  it('21 lines rolls over to 2 floors', () => {
+    expect(getBuildingDimensions({ lines: 21, size: 100 }, TEST_CONFIG).floors).toBe(2);
+  });
+
+  it('80 lines = 4 floors at 20 lines/floor', () => {
+    const dim = getBuildingDimensions({ lines: 80, size: 2000 }, TEST_CONFIG);
+    expect(dim.floors).toBe(4);
+    expect(dim.h).toBe(40);
+  });
+
+  it('caps at max_floors for very large files', () => {
     const dim = getBuildingDimensions({ lines: 100000, size: 10 * 1024 * 1024 }, TEST_CONFIG);
-    expect(dim.h).toBe(120);
+    expect(dim.floors).toBe(30);
+    expect(dim.h).toBe(300);
     expect(dim.w).toBe(40);
   });
 
-  it('depth is (height + width) / 2', () => {
+  it('max_floors: null means no cap', () => {
+    const uncapped = { ...TEST_CONFIG, building: { ...TEST_CONFIG.building, max_floors: null } };
+    const dim = getBuildingDimensions({ lines: 10000, size: 1000 }, uncapped);
+    expect(dim.floors).toBe(500);  // 10000 / 20 lines/floor
+    expect(dim.h).toBe(5000);
+  });
+
+  it('depth == width (square footprint)', () => {
     const dim = getBuildingDimensions({ lines: 80, size: 2000 }, TEST_CONFIG);
-    expect(dim.d).toBeCloseTo((dim.h + dim.w) / 2, 0);
+    expect(dim.d).toBe(dim.w);
   });
 
   it('zero lines treated as 1 (no -Infinity)', () => {
     const dim = getBuildingDimensions({ lines: 0, size: 0 }, TEST_CONFIG);
-    expect(dim.h).toBe(4);
+    expect(dim.floors).toBe(1);
+    expect(dim.h).toBe(10);
     expect(dim.w).toBe(6);
   });
 });

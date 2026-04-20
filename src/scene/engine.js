@@ -12,10 +12,17 @@ import { shadeColor, shadeAndShiftHue, shadeByRatio } from './hsl.js';
 // -----------------------------------------------------------------------------
 // Scene-wide constants
 // -----------------------------------------------------------------------------
-var FLOOR_HEIGHT = 10;                  // one floor = 10 world units tall
-var STREET_COLOR_ASPHALT  = 0x1a1d28;
-var STREET_COLOR_SIDEWALK = 0x2a3050;
-var GROUND_COLOR          = 0x0a0b10;
+// Defaults for config.scene.* — used when no config is passed (e.g. tests).
+// Active colors are set at the top of buildCityScene from config.scene and
+// read from the helpers below.
+var DEFAULT_SCENE_COLORS = {
+  asphalt:  '#1a1d28',
+  sidewalk: '#2a3050',
+  ground:   '#0a0b10'
+};
+var STREET_COLOR_ASPHALT  = DEFAULT_SCENE_COLORS.asphalt;
+var STREET_COLOR_SIDEWALK = DEFAULT_SCENE_COLORS.sidewalk;
+var GROUND_COLOR          = DEFAULT_SCENE_COLORS.ground;
 
 
 // -----------------------------------------------------------------------------
@@ -150,12 +157,12 @@ function _buildRoofTexture(opts) {
 function createBuildingMesh(building) {
   var w = building.w;
   var d = building.d;
-  var h = building.h;
   var color = building.color || 'hsl(220, 10%, 40%)';
 
-  // Snap height to whole floors so textures line up.
-  var floors = Math.max(1, Math.round(h / FLOOR_HEIGHT));
-  var renderH = floors * FLOOR_HEIGHT;
+  // Floor count + height come straight from layout (layout is the source of
+  // truth for the lines→floors mapping and snaps h to floor_height boundaries).
+  var floors  = Math.max(1, building.floors || 1);
+  var renderH = building.h;
 
   // Scene convention: Three.js Y is up. Layout coords (x, y) map to scene
   // (x, z) with building height along scene-Y. So a BoxGeometry(w, renderH, d)
@@ -557,7 +564,15 @@ function createStreetLabels(street) {
 }
 
 
-export function buildCityScene(layout) {
+export function buildCityScene(layout, config) {
+  // Resolve scene colors from config (falling back to defaults). Module-level
+  // vars are set here so the street/path helpers below pick them up without
+  // needing to thread `config` through each function.
+  var sc = (config && config.scene) || {};
+  STREET_COLOR_ASPHALT  = sc.asphalt  || DEFAULT_SCENE_COLORS.asphalt;
+  STREET_COLOR_SIDEWALK = sc.sidewalk || DEFAULT_SCENE_COLORS.sidewalk;
+  GROUND_COLOR          = sc.ground   || DEFAULT_SCENE_COLORS.ground;
+
   var scene = new THREE.Scene();
   scene.background = new THREE.Color(GROUND_COLOR);
 

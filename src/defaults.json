@@ -2,23 +2,45 @@
   "output_dir": "~/.codecity",
   "depth": null,
   "gitignore": true,
-  "street_tiers": [3, 8, 15, 30],
-  "building": {
-    "min_height": 4,
-    "max_height": 120,
-    "min_width": 6,
-    "max_width": 40
+
+  "layout": {
+    "child_gap": 5,
+    "bldg_street_gap": 4,
+    "path_width": 3,
+    "street_tiers": [
+      { "min_descendants": 0,  "width": 10 },
+      { "min_descendants": 4,  "width": 16 },
+      { "min_descendants": 9,  "width": 24 },
+      { "min_descendants": 16, "width": 36 },
+      { "min_descendants": 31, "width": 52 }
+    ]
   },
-  "saturation": { "min": 20, "max": 100 },
-  "lightness": { "min": 25, "max": 70 },
-  "palette": {
-    ".js": 220, ".ts": 215, ".jsx": 225, ".tsx": 210, ".mjs": 220,
-    ".py": 15, ".pyx": 20, ".pyi": 10,
-    ".css": 150, ".scss": 145, ".less": 155, ".sass": 148,
-    ".html": 175, ".vue": 170, ".svelte": 180,
-    ".json": 50, ".yaml": 55, ".toml": 45, ".ini": 52,
-    ".md": 275, ".txt": 280, ".rst": 270,
-    ".sh": 35, ".bash": 38, ".zsh": 32,
-    ".go": 185, ".rs": 5
+
+  "building": {
+    "lines_per_floor": 20,
+    "min_floors": 1,
+    "max_floors": null,
+    "floor_height": 10,
+    "byte_ceiling": 10485760,
+    "min_width": 6,
+    "max_width": 40,
+    "saturation": { "min": 20, "max": 100 },
+    "lightness":  { "min": 25, "max": 70 },
+    "hue_ext_map": {
+      ".js": 220, ".ts": 215, ".jsx": 225, ".tsx": 210, ".mjs": 220,
+      ".py": 15, ".pyx": 20, ".pyi": 10,
+      ".css": 150, ".scss": 145, ".less": 155, ".sass": 148,
+      ".html": 175, ".vue": 170, ".svelte": 180,
+      ".json": 50, ".yaml": 55, ".toml": 45, ".ini": 52,
+      ".md": 275, ".txt": 280, ".rst": 270,
+      ".sh": 35, ".bash": 38, ".zsh": 32,
+      ".go": 185, ".rs": 5
+    }
+  },
+
+  "scene": {
+    "asphalt":  "#1a1d28",
+    "sidewalk": "#2a3050",
+    "ground":   "#0a0b10"
   }
 }

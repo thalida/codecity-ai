@@ -197,8 +197,8 @@ export function getBuildingColor(file, palette, dateRanges, config) {
   var modified = (file.git && file.git.modified) || file.modified || null;
 
   var h = getHue(file.extension || "", palette);
-  var s = getSaturation(created,  dateRanges.createdMin,  dateRanges.createdMax,  config.saturation);
-  var l = getLightness(modified,  dateRanges.modifiedMin, dateRanges.modifiedMax, config.lightness);
+  var s = getSaturation(created,  dateRanges.createdMin,  dateRanges.createdMax,  config.building.saturation);
+  var l = getLightness(modified,  dateRanges.modifiedMin, dateRanges.modifiedMax, config.building.lightness);
 
   return "hsl(" + h + ", " + s + "%, " + l + "%)";
 }

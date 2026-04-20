@@ -8,11 +8,31 @@ import {
 } from '../../src/scene/colors.js';
 
 const TEST_CONFIG = {
-  street_tiers: [3, 8, 15, 30],
-  building: { min_height: 4, max_height: 120, min_width: 6, max_width: 40 },
-  saturation: { min: 20, max: 100 },
-  lightness: { min: 25, max: 70 },
-  palette: { ".ts": 215, ".js": 220, ".md": 275, ".json": 50, ".png": 30 },
+  layout: {
+    child_gap: 5,
+    bldg_street_gap: 4,
+    path_width: 3,
+    street_tiers: [
+      { min_descendants: 0,  width: 10 },
+      { min_descendants: 4,  width: 16 },
+      { min_descendants: 9,  width: 24 },
+      { min_descendants: 16, width: 36 },
+      { min_descendants: 31, width: 52 }
+    ]
+  },
+  building: {
+    lines_per_floor: 20,
+    min_floors: 1,
+    max_floors: 30,
+    floor_height: 10,
+    byte_ceiling: 10485760,
+    min_width: 6,
+    max_width: 40,
+    saturation: { min: 20, max: 100 },
+    lightness:  { min: 25, max: 70 },
+    hue_ext_map: { ".ts": 215, ".js": 220, ".md": 275, ".json": 50, ".png": 30 }
+  },
+  scene: { asphalt: '#1a1d28', sidewalk: '#2a3050', ground: '#0a0b10' }
 };
 
 const TEST_TREE = {
@@ -46,42 +66,42 @@ const TEST_TREE = {
 // ---- getHue ----
 describe('getHue', () => {
   it('returns palette value for known extension .ts', () => {
-    expect(getHue('.ts', TEST_CONFIG.palette)).toBe(215);
+    expect(getHue('.ts', TEST_CONFIG.building.hue_ext_map)).toBe(215);
   });
 
   it('returns palette value for known extension .js', () => {
-    expect(getHue('.js', TEST_CONFIG.palette)).toBe(220);
+    expect(getHue('.js', TEST_CONFIG.building.hue_ext_map)).toBe(220);
   });
 
   it('returns palette value for known extension .md', () => {
-    expect(getHue('.md', TEST_CONFIG.palette)).toBe(275);
+    expect(getHue('.md', TEST_CONFIG.building.hue_ext_map)).toBe(275);
   });
 
   it('returns palette value for known extension .json', () => {
-    expect(getHue('.json', TEST_CONFIG.palette)).toBe(50);
+    expect(getHue('.json', TEST_CONFIG.building.hue_ext_map)).toBe(50);
   });
 
   it('returns palette value for known extension .png', () => {
-    expect(getHue('.png', TEST_CONFIG.palette)).toBe(30);
+    expect(getHue('.png', TEST_CONFIG.building.hue_ext_map)).toBe(30);
   });
 
   it('returns deterministic hash for unknown extension', () => {
-    const hue1 = getHue('.xyz', TEST_CONFIG.palette);
-    const hue2 = getHue('.xyz', TEST_CONFIG.palette);
+    const hue1 = getHue('.xyz', TEST_CONFIG.building.hue_ext_map);
+    const hue2 = getHue('.xyz', TEST_CONFIG.building.hue_ext_map);
     expect(hue1).toBe(hue2);
     expect(hue1).toBeGreaterThanOrEqual(0);
     expect(hue1).toBeLessThanOrEqual(359);
   });
 
   it('does not crash on empty extension', () => {
-    const hue = getHue('', TEST_CONFIG.palette);
+    const hue = getHue('', TEST_CONFIG.building.hue_ext_map);
     expect(typeof hue).toBe('number');
   });
 });
 
 // ---- getSaturation ----
 describe('getSaturation', () => {
-  const cfg = TEST_CONFIG.saturation;
+  const cfg = TEST_CONFIG.building.saturation;
 
   it('returns min saturation for oldest file', () => {
     expect(getSaturation(
@@ -127,7 +147,7 @@ describe('getSaturation', () => {
 
 // ---- getLightness ----
 describe('getLightness', () => {
-  const cfg = TEST_CONFIG.lightness;
+  const cfg = TEST_CONFIG.building.lightness;
 
   it('returns max lightness for most recently modified', () => {
     expect(getLightness(
@@ -206,19 +226,19 @@ describe('getDateRanges', () => {
 describe('getBuildingColor', () => {
   it('returns valid "hsl(...)" string', () => {
     const dateRanges = getDateRanges(TEST_TREE);
-    const color = getBuildingColor(TEST_TREE.children[0], TEST_CONFIG.palette, dateRanges, TEST_CONFIG);
+    const color = getBuildingColor(TEST_TREE.children[0], TEST_CONFIG.building.hue_ext_map, dateRanges, TEST_CONFIG);
     expect(color).toMatch(/^hsl\(\d+,\s*[\d.]+%,\s*[\d.]+%\)$/);
   });
 
   it('uses correct hue for .ts files', () => {
     const dateRanges = getDateRanges(TEST_TREE);
-    const color = getBuildingColor(TEST_TREE.children[0], TEST_CONFIG.palette, dateRanges, TEST_CONFIG);
+    const color = getBuildingColor(TEST_TREE.children[0], TEST_CONFIG.building.hue_ext_map, dateRanges, TEST_CONFIG);
     expect(color).toMatch(/^hsl\(215,/);
   });
 
   it('uses correct hue for .md files', () => {
     const dateRanges = getDateRanges(TEST_TREE);
-    const color = getBuildingColor(TEST_TREE.children[1], TEST_CONFIG.palette, dateRanges, TEST_CONFIG);
+    const color = getBuildingColor(TEST_TREE.children[1], TEST_CONFIG.building.hue_ext_map, dateRanges, TEST_CONFIG);
     expect(color).toMatch(/^hsl\(275,/);
   });
 
@@ -229,7 +249,7 @@ describe('getBuildingColor', () => {
       size: 1000, lines: 10,
       git: { created: '2024-01-10T09:00:00Z', modified: '2024-03-22T14:30:00Z' }
     };
-    const color = getBuildingColor(unknownFile, TEST_CONFIG.palette, dateRanges, TEST_CONFIG);
+    const color = getBuildingColor(unknownFile, TEST_CONFIG.building.hue_ext_map, dateRanges, TEST_CONFIG);
     expect(color).toMatch(/^hsl\(/);
   });
 });

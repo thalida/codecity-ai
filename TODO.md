@@ -1,6 +1,6 @@
 # ToDo's
 
-- [ ] make building height <> num lines (floor is set # of lines)
+- [x] make building height <> num lines (floor is set # of lines)
 - [x] threejs
 - [x] interactive streets
 - [ ] labels on hover
@@ -11,3 +11,4 @@
 - [x] rounded street ends
 - [x] rename .dev to build or dist
 - [x] Update README.md
+- [ ] Add typescript

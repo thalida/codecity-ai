@@ -15,21 +15,21 @@ import { showTreeSidebar } from './components/tree.js';
 
 function startRenderLoop(canvas, manifest, config) {
   // -- 1. Layout + colors ------------------------------------------------------
-  var layout     = layoutCity(manifest.tree, config);
-  var dateRanges = getDateRanges(manifest.tree);
-  var palette    = config.palette || {};
+  var layout      = layoutCity(manifest.tree, config);
+  var dateRanges  = getDateRanges(manifest.tree);
+  var fileHueMap  = (config.building && config.building.file_hue_map) || {};
 
   for (var i = 0; i < layout.buildings.length; i++) {
     var b = layout.buildings[i];
     if (b.file && b.file.type === 'file') {
-      b.color = getBuildingColor(b.file, palette, dateRanges, config);
+      b.color = getBuildingColor(b.file, fileHueMap, dateRanges, config);
     } else {
       b.color = 'hsl(220, 15%, 25%)';
     }
   }
 
   // -- 2. Scene ----------------------------------------------------------------
-  var built = buildCityScene(layout);
+  var built = buildCityScene(layout, config);
   var scene = built.scene;
   var buildingMeshes  = built.buildingMeshes;
   var streetPickables = built.streetPickables;

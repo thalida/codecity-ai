@@ -2,48 +2,59 @@
 //   Building: { x, y, w, d, h, color, file, orient }
 //   Street:   { x, y, w, d, label, dir }
 
-export function getStreetTier(childrenCount, tiers) {
-  if (childrenCount <= tiers[0]) return 1;
-  if (childrenCount <= tiers[1]) return 2;
-  if (childrenCount <= tiers[2]) return 3;
-  if (childrenCount <= tiers[3]) return 4;
-  return 5;
-}
-
-
-export function getStreetWidth(tier) {
-  var widths = [0, 10, 16, 24, 36, 52];
-  var t = Math.max(1, Math.min(5, Math.round(tier)));
-  return widths[t];
+// getStreetWidth(count, tiers) -> number
+//
+// Given a descendant count and the ordered tier list from config.layout.street_tiers,
+// return the world-unit street width. Each tier entry is
+// { min_descendants, width }. Walk the list and pick the tier with the
+// highest min_descendants that `count` meets. The last tier (largest
+// min_descendants) acts as the catch-all for big directories.
+export function getStreetWidth(count, tiers) {
+  var fallback = [
+    { min_descendants: 0,  width: 10 },
+    { min_descendants: 4,  width: 16 },
+    { min_descendants: 9,  width: 24 },
+    { min_descendants: 16, width: 36 },
+    { min_descendants: 31, width: 52 }
+  ];
+  var arr = (tiers && tiers.length) ? tiers : fallback;
+  var chosen = arr[0].width;
+  for (var i = 0; i < arr.length; i++) {
+    if (count >= arr[i].min_descendants) chosen = arr[i].width;
+  }
+  return chosen;
 }
 
 
 export function getBuildingDimensions(file, config) {
   var bc = config.building;
 
-  // ---- Height from line count ------------------------------------------------
+  // ---- Height: floors directly from line count ------------------------------
+  // Linear in lines. If `max_floors` is a number, the tower saturates there;
+  // if null, there's no cap and huge files produce proportionally huge towers.
   var lines = (file.lines && file.lines > 0) ? file.lines : 1;
-  var logLines    = Math.log(lines);
-  var logLinesMax = Math.log(100000);  // reference ceiling: 100k lines
-  var tH = Math.max(0, Math.min(1, logLines / logLinesMax));
-  var height = bc.min_height + tH * (bc.max_height - bc.min_height);
-  height = Math.max(bc.min_height, Math.min(bc.max_height, height));
+  var target = Math.max(bc.min_floors, Math.ceil(lines / bc.lines_per_floor));
+  var floors = (bc.max_floors != null) ? Math.min(bc.max_floors, target) : target;
+  var height = floors * bc.floor_height;
 
   // ---- Width from file size in bytes ----------------------------------------
+  // Log-scaled because file sizes legitimately span many orders of magnitude.
   var bytes = (file.size && file.size > 0) ? file.size : 1;
   var logBytes    = Math.log(bytes);
-  var logBytesMax = Math.log(10 * 1024 * 1024);  // reference ceiling: 10 MB
+  var logBytesMax = Math.log(bc.byte_ceiling);
   var tW = Math.max(0, Math.min(1, logBytes / logBytesMax));
   var width = bc.min_width + tW * (bc.max_width - bc.min_width);
   width = Math.max(bc.min_width, Math.min(bc.max_width, width));
 
-  // ---- Depth = average of height and width ----------------------------------
-  var depth = (height + width) / 2;
+  // ---- Depth == width -------------------------------------------------------
+  // Keeps the footprint square so tall thin towers don't become deep slabs.
+  var depth = width;
 
   return {
     w: Math.round(width  * 10) / 10,
     d: Math.round(depth  * 10) / 10,
-    h: Math.round(height * 10) / 10
+    h: Math.round(height * 10) / 10,
+    floors: floors
   };
 }
 
@@ -51,9 +62,8 @@ export function getBuildingDimensions(file, config) {
 // -----------------------------------------------------------------------------
 // Street-network layout constants
 // -----------------------------------------------------------------------------
-var CHILD_GAP         = 5;   // gap between adjacent children (files or subdirs)
-var BLDG_STREET_GAP   = 4;   // clear space between street's edge and building
-var PARENT_JOIN_PAD   = 3;   // extra clear space at the start/end of a child street
+// User-facing knobs (child_gap, bldg_street_gap) come from config.layout.
+// These remaining constants are layout internals not worth surfacing.
 var ROOT_END_PAD      = 8;   // fallback pad for the root street (has no parent)
 
 // Root gem landing zone. The gem's center sits at the origin-end cap center
@@ -95,9 +105,14 @@ export function layoutCity(manifest, config) {
     }
   }
 
-  // Compute paths from each building's door to the adjacent street
+  // Compute paths from each building's door to the adjacent street. Path
+  // length equals bldg_street_gap so it exactly bridges the building face
+  // to the street edge.
+  var lc = (config && config.layout) || {};
+  var pathWidth  = (lc.path_width != null) ? lc.path_width : 3;
+  var pathLength = (lc.bldg_street_gap != null) ? lc.bldg_street_gap : 4;
   for (var pi = 0; pi < result.buildings.length; pi++) {
-    var path = _pathForBuilding(result.buildings[pi]);
+    var path = _pathForBuilding(result.buildings[pi], pathWidth, pathLength);
     if (path) result.paths.push(path);
   }
 
@@ -112,60 +127,53 @@ export function layoutCity(manifest, config) {
 // its street. Larger directories get wider boulevards.
 // -----------------------------------------------------------------------------
 function _streetWidthForDir(dir, config) {
-  var tiers = (config && config.street_tiers) || [3, 8, 15, 30];
+  var tiers = config && config.layout && config.layout.street_tiers;
   // Prefer descendants_count (total files+dirs under this node); fall back
   // to direct children_count for shallow trees / older manifests.
   var count = (dir && (dir.descendants_count || dir.children_count)) || 0;
-  return getStreetWidth(getStreetTier(count, tiers));
+  return getStreetWidth(count, tiers);
 }
 
 
 // -----------------------------------------------------------------------------
-// _pathForBuilding(building) -> path | null
+// _pathForBuilding(building, pathWidth, pathLength) -> path | null
 //
 // Returns a thin sidewalk-colored strip connecting the building's door (on its
-// front face) to the adjacent street's sidewalk. The path length is the
-// constant clear gap between street edge and building face (BLDG_STREET_GAP),
-// so paths look consistent regardless of how wide each street is.
+// front face) to the adjacent street's sidewalk. `pathLength` should equal
+// config.layout.bldg_street_gap so the path exactly bridges the gap between
+// building face and street edge; `pathWidth` is the walkway's narrow dim.
 // -----------------------------------------------------------------------------
-var _PATH_LENGTH = BLDG_STREET_GAP;
-var _PATH_WIDTH  = 3;                                // narrow walkway
-
-function _pathForBuilding(b) {
+function _pathForBuilding(b, pathWidth, pathLength) {
   if (b.orient === 's') {
-    // Door on +y face → path extends from building's +y edge northward to street
     return {
       x: b.x,
-      y: b.y + b.d / 2 + _PATH_LENGTH / 2,
-      w: _PATH_WIDTH,
-      d: _PATH_LENGTH
+      y: b.y + b.d / 2 + pathLength / 2,
+      w: pathWidth,
+      d: pathLength
     };
   }
   if (b.orient === 'e') {
-    // Door on +x face → path extends from building's +x edge eastward to street
     return {
-      x: b.x + b.w / 2 + _PATH_LENGTH / 2,
+      x: b.x + b.w / 2 + pathLength / 2,
       y: b.y,
-      w: _PATH_LENGTH,
-      d: _PATH_WIDTH
+      w: pathLength,
+      d: pathWidth
     };
   }
   if (b.orient === 'n') {
-    // Door on -y face (hidden) → path extends southward to street behind/under building
     return {
       x: b.x,
-      y: b.y - b.d / 2 - _PATH_LENGTH / 2,
-      w: _PATH_WIDTH,
-      d: _PATH_LENGTH
+      y: b.y - b.d / 2 - pathLength / 2,
+      w: pathWidth,
+      d: pathLength
     };
   }
   if (b.orient === 'w') {
-    // Door on -x face (hidden) → path extends westward
     return {
-      x: b.x - b.w / 2 - _PATH_LENGTH / 2,
+      x: b.x - b.w / 2 - pathLength / 2,
       y: b.y,
-      w: _PATH_LENGTH,
-      d: _PATH_WIDTH
+      w: pathLength,
+      d: pathWidth
     };
   }
   return null;
@@ -199,11 +207,17 @@ function _pathForBuilding(b) {
 // the file is on the secondary side the door is on a hidden face ('n' or 'w').
 // -----------------------------------------------------------------------------
 function _layoutDir(dir, config, originX, originY, orientation, result, parentStreetWidth) {
+  // User-tunable gaps (pulled fresh so tests / runtime configs can override).
+  var lc              = (config && config.layout) || {};
+  var childGap        = (lc.child_gap       != null) ? lc.child_gap       : 5;
+  var bldgStreetGap   = (lc.bldg_street_gap != null) ? lc.bldg_street_gap : 4;
+  var PARENT_JOIN_PAD = 3;   // internal: extra clear space where a child meets its parent
+
   // Widths — this street's visual width comes from its descendants count, and
   // end-padding depends on the PARENT street's width so children don't cross
   // the parent intersection.
   var myStreetWidth = _streetWidthForDir(dir, config);
-  var bldgOffset    = myStreetWidth / 2 + BLDG_STREET_GAP;
+  var bldgOffset    = myStreetWidth / 2 + bldgStreetGap;
   var endPad        = parentStreetWidth
     ? parentStreetWidth / 2 + PARENT_JOIN_PAD
     : ROOT_END_PAD;
@@ -302,12 +316,13 @@ function _layoutDir(dir, config, originX, originY, orientation, result, parentSt
       fileBuildings.push({
         x: bx, y: by,
         w: bldgW, d: bldgD, h: dim.h,
+        floors: dim.floors,
         file: child,
         color: null,
         orient: orient
       });
 
-      cursor[sideIdx] = startPos + alongStreet + CHILD_GAP;
+      cursor[sideIdx] = startPos + alongStreet + childGap;
       if (cursor[sideIdx] > alphaCursor) alphaCursor = cursor[sideIdx];
     } else {
       // ---- Subdir branch ----
@@ -357,13 +372,14 @@ function _layoutDir(dir, config, originX, originY, orientation, result, parentSt
           x: (negateX ? -b.x : b.x) + subAnchorX,
           y: (negateY ? -b.y : b.y) + subAnchorY,
           w: b.w, d: b.d, h: b.h,
+          floors: b.floors,
           file: b.file,
           color: b.color,
           orient: _mirrorOrient(b.orient, negateX, negateY)
         });
       }
 
-      var subEnd = subStart + (widthHigh - widthLow) + CHILD_GAP;
+      var subEnd = subStart + (widthHigh - widthLow) + childGap;
       cursor[subSide] = subEnd;
       if (subEnd > alphaCursor) alphaCursor = subEnd;
 
@@ -374,9 +390,9 @@ function _layoutDir(dir, config, originX, originY, orientation, result, parentSt
     }
   }
 
-  // Trim the trailing CHILD_GAP added by the last child, then pad the end.
+  // Trim the trailing childGap added by the last child, then pad the end.
   var maxCursor = Math.max(cursor[0], cursor[1]);
-  if (maxCursor > endPad) maxCursor -= CHILD_GAP;
+  if (maxCursor > endPad) maxCursor -= childGap;
   maxCursor += endPad;
 
   // ---- Compute street length and add street ------------------------------
