@@ -17,8 +17,6 @@
 # ── Module-level state (re-initialized by scan_tree on each call) ─────────────
 declare -A _SCAN_GIT_CREATED
 declare -A _SCAN_GIT_MODIFIED
-declare -A _SCAN_GIT_COMMITS
-declare -A _SCAN_GIT_CONTRIBUTORS
 declare -A _SCAN_TRACKED_FILES
 _SCAN_FILES_SEEN=0
 
@@ -88,22 +86,16 @@ _scan_file_json() {
 
   git_json="null"
   if [[ "$_SCAN_IS_GIT_REPO" == "true" ]]; then
-    local g_created g_modified g_commits g_contributors
+    local g_created g_modified
     g_created="${_SCAN_GIT_CREATED[$rel_path]:-}"
     g_modified="${_SCAN_GIT_MODIFIED[$rel_path]:-}"
-    g_commits="${_SCAN_GIT_COMMITS[$rel_path]:-0}"
-    g_contributors="${_SCAN_GIT_CONTRIBUTORS[$rel_path]:-[]}"
 
     git_json=$(jq -n \
       --arg created "$g_created" \
       --arg modified "$g_modified" \
-      --argjson commits "$g_commits" \
-      --argjson contributors "$g_contributors" \
       '{
         created: (if $created == "" then null else $created end),
-        modified: (if $modified == "" then null else $modified end),
-        commits: $commits,
-        contributors: $contributors
+        modified: (if $modified == "" then null else $modified end)
       }')
   fi
 
@@ -288,8 +280,6 @@ scan_tree() {
   # Reset per-call state
   _SCAN_GIT_CREATED=()
   _SCAN_GIT_MODIFIED=()
-  _SCAN_GIT_COMMITS=()
-  _SCAN_GIT_CONTRIBUTORS=()
   _SCAN_TRACKED_FILES=()
   _SCAN_FILES_SEEN=0
 
@@ -312,36 +302,19 @@ scan_tree() {
 
     _scan_log "  collected creation dates for ${#_SCAN_GIT_CREATED[@]} files"
 
-    declare -A _file_contributors
-    local current_author key contrib_str json_arr
+    # Modified date per file: walk git log once in reverse-chronological order.
+    # First occurrence of a path = most recent commit that touched it.
+    _scan_log "  collecting per-file modified dates (batched log walk)…"
+    local mod_current_date mod_info
     while IFS= read -r line; do
       if [[ "$line" == COMMIT:* ]]; then
-        current_author="${line#COMMIT:}"
+        mod_info="${line#COMMIT:}"
+        mod_current_date="${mod_info#* }"
       elif [[ -n "$line" ]]; then
-        key="$line"
-        if [[ -n "${_file_contributors[$key]+x}" ]]; then
-          if [[ "${_file_contributors[$key]}" != *"|${current_author}|"* ]]; then
-            _file_contributors["$key"]="${_file_contributors[$key]}|${current_author}|"
-          fi
-        else
-          _file_contributors["$key"]="|${current_author}|"
-        fi
+        [[ -z "${_SCAN_GIT_MODIFIED[$line]+x}" ]] && _SCAN_GIT_MODIFIED["$line"]="$mod_current_date"
       fi
-    done < <(git -C "$_SCAN_ROOT" log --format="COMMIT:%aN" --name-only 2>/dev/null)
-
-    local fpath
-    for fpath in "${!_file_contributors[@]}"; do
-      contrib_str="${_file_contributors[$fpath]}"
-      json_arr=$(printf '%s' "$contrib_str" | tr '|' '\n' | grep -v '^$' | sort -u | jq -R . | jq -sc .)
-      _SCAN_GIT_CONTRIBUTORS["$fpath"]="$json_arr"
-    done
-    _scan_log "  collected contributors for ${#_SCAN_GIT_CONTRIBUTORS[@]} files"
-
-    _scan_log "  collecting per-file modified date + commit count…"
-    while IFS= read -r fpath; do
-      _SCAN_GIT_MODIFIED["$fpath"]=$(git -C "$_SCAN_ROOT" log -1 --format="%aI" -- "$fpath" 2>/dev/null || echo "")
-      _SCAN_GIT_COMMITS["$fpath"]=$(git -C "$_SCAN_ROOT" rev-list --count HEAD -- "$fpath" 2>/dev/null || echo "0")
-    done < <(git -C "$_SCAN_ROOT" ls-files 2>/dev/null)
+    done < <(git -C "$_SCAN_ROOT" log --format="COMMIT:%H %aI" --name-only 2>/dev/null)
+    _scan_log "  collected modified dates for ${#_SCAN_GIT_MODIFIED[@]} files"
 
     if [[ "${GITIGNORE:-1}" != "0" ]]; then
       while IFS= read -r fpath; do
@@ -360,7 +333,7 @@ scan_tree() {
 
   local scanned_at tree
   scanned_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  _scan_log "walking tree (per-file git log + file_json; this is the slow phase)…"
+  _scan_log "walking tree (jq per file; this is the slow phase)…"
   tree=$(_scan_build_tree "$_SCAN_ROOT" "." 0)
   # Note: _SCAN_FILES_SEEN increments inside a subshell so we can't report the
   # final total here. Heartbeats inside _scan_build_tree show progress for

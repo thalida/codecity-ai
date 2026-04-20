@@ -154,19 +154,13 @@ assert_eq "index.ts git.created = 2024-03-22" \
 assert_eq "index.ts git.modified = 2024-03-22" \
   "2024-03-22T14:30:00Z" \
   "$(echo "$INDEX_TS" | jq -r '.git.modified')"
-assert_eq "index.ts git.commits = 1" "1" "$(echo "$INDEX_TS" | jq -r '.git.commits')"
-assert_contains "index.ts git.contributors includes Test Fixture Bot" \
-  "$(echo "$INDEX_TS" | jq -r '.git.contributors | join(",")')" \
-  "Test Fixture Bot"
-
 GITIGNORE_NODE=$(echo "$OUT" | jq '[.. | objects | select(.name == ".gitignore")] | .[0]')
 assert_eq ".gitignore git.created = 2024-01-10" \
   "2024-01-10T09:00:00Z" \
   "$(echo "$GITIGNORE_NODE" | jq -r '.git.created')"
 
 assert_not_empty "logo.png git.created is set" "$(echo "$LOGO" | jq -r '.git.created')"
-assert_not_empty "logo.png git.contributors is non-empty array" \
-  "$(echo "$LOGO" | jq -r 'if (.git.contributors | length) > 0 then "ok" else empty end')"
+assert_not_empty "logo.png git.modified is set" "$(echo "$LOGO" | jq -r '.git.modified')"
 
 # ── Section 8: .git directory not present ─────────────────────────────────────
 echo ""

@@ -18,8 +18,6 @@ const FILE_NODE = {
   git: {
     created: '2024-01-10T09:00:00Z',
     modified: '2024-03-20T10:00:00Z',
-    commits: 4,
-    contributors: ['alice'],
   },
 };
 
@@ -64,13 +62,6 @@ describe('showFileSidebar', () => {
     const text = document.getElementById('sidebar').textContent;
     expect(text).toContain('1.5 KB');
     expect(text).toContain('50');
-  });
-
-  it('renders contributors when git data is present', () => {
-    showFileSidebar(FILE_NODE);
-    const contributors = document.querySelector('.sidebar-contributors');
-    expect(contributors).not.toBeNull();
-    expect(contributors.textContent).toContain('alice');
   });
 
   it('clears existing content on re-open', () => {

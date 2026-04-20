@@ -237,19 +237,6 @@ canvas {
 }
 
 
-/* ── Contributors list ──────────────────────────────────────────────────────── */
-
-.sidebar-contributors {
-  font-size: 12px;
-  color: #8a8ea0;
-  line-height: 1.6;
-}
-
-/* Each contributor name is inline; they flow naturally as comma-separated text */
-.contributor-name {
-  color: #a0a4bc;
-}
-
 
 /* ── Directory type badge ───────────────────────────────────────────────────── */
 

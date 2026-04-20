@@ -12,7 +12,7 @@ var _selectedBuilding = null;
  *
  * Expected file shape (from scan.sh manifest):
  *   name, path, fullPath, extension, size, lines, created, modified,
- *   git: { created, modified, commits, contributors } | null
+ *   git: { created, modified } | null
  *
  * @param {Object} file - File node from the scanner manifest.
  */
@@ -93,35 +93,6 @@ export function showFileSidebar(file) {
 
   statsSection.appendChild(statsGrid);
   body.appendChild(statsSection);
-
-  // ---- Git section -----------------------------------------------------------
-  if (file.git) {
-    var gitSection = document.createElement('div');
-    gitSection.className = 'sidebar-section';
-
-    var gitLabel = document.createElement('div');
-    gitLabel.className = 'sidebar-section-label';
-    gitLabel.textContent = 'Git';
-    gitSection.appendChild(gitLabel);
-
-    var gitGrid = document.createElement('div');
-    gitGrid.className = 'sidebar-stats';
-
-    if (file.git.commits != null) {
-      _appendStatItem(gitGrid, 'Commits', String(file.git.commits));
-    }
-
-    gitSection.appendChild(gitGrid);
-
-    if (file.git.contributors && file.git.contributors.length > 0) {
-      var contribEl = document.createElement('div');
-      contribEl.className = 'sidebar-contributors';
-      contribEl.textContent = file.git.contributors.join(', ');
-      gitSection.appendChild(contribEl);
-    }
-
-    body.appendChild(gitSection);
-  }
 
   sidebar.appendChild(body);
 
