@@ -10,4 +10,4 @@
 - [x] clean up blocks and hitTestBlock
 - [x] rounded street ends
 - [x] rename .dev to build or dist
-- [ ] Update README.md
+- [x] Update README.md

@@ -33,11 +33,11 @@ Each file in the tree becomes a building. Visual properties map directly to file
 | Saturation | File age (created)    | Vivid = newer file, faded = older file                             |
 | Lightness  | Last modified date    | Bright = recently changed, dim = long untouched                    |
 
-Git data is preferred over filesystem dates for saturation and lightness when the target directory is a git repository.
+Git timestamps are preferred over filesystem timestamps when the scanned directory is a git repository.
 
 ## Configuration
 
-The agent accepts flags directly in the invocation:
+Flags can be passed directly to the invocation:
 
 ```text
 /codecity ./src --depth 2
@@ -47,19 +47,20 @@ The agent accepts flags directly in the invocation:
 
 | Flag                  | Default        | Description                              |
 | --------------------- | -------------- | ---------------------------------------- |
-| `--depth <n>`         | unlimited      | Max directory levels to scan             |
+| `--root <path>`       | cwd            | Directory to scan                        |
+| `--depth <n>`         | unlimited      | Max directory levels                     |
 | `--output <path>`     | `~/.codecity/` | Where to write the HTML file             |
 | `--exclude <pattern>` | —              | Skip files matching this pattern         |
 | `--include <pattern>` | —              | Only include files matching this pattern |
 | `--no-gitignore`      | —              | Disable `.gitignore` filtering           |
 
-Color overrides are also supported — ask the agent to change the hue for a specific file extension. The default palette is in `src/config/defaults.json`.
+Color overrides live in `src/defaults.json`. Ask the agent to tweak a hue for a specific extension and it will edit that file.
 
 ## Installation on other platforms
 
 ### Cursor
 
-Copy or symlink the plugin directory into your Cursor rules folder, then reference the skill file from your project's `.cursor/rules`.
+Copy or symlink the plugin directory into your Cursor rules folder, then reference `skills/codecity/SKILL.md` from your project's `.cursor/rules`.
 
 ### Codex
 
@@ -73,69 +74,22 @@ Add the plugin path to your OpenCode configuration under the `plugins` key.
 
 ### Gemini
 
-Place the plugin directory where Gemini can resolve it as a tool and reference `src/skills/codecity/SKILL.md` as the skill definition.
+Place the plugin directory where Gemini can resolve it as a tool and reference `skills/codecity/SKILL.md` as the skill definition.
 
 ## Development
 
-```text
-src/
-  config/defaults.json           # default palette and building size config
-  scanner/
-    scan.sh                      # walks a directory tree, outputs JSON manifest
-    tests/
-      test-scan.sh               # integration tests for scan.sh
-      fixtures/
-        setup.sh                 # creates a deterministic sample git repo
-        sample-repo/             # generated, not committed
-  renderer/
-    engine.js                    # Three.js scene builder (buildings/streets/gem)
-    colors.js                    # HSL color mapping from file metadata
-    layout.js                    # street and building placement
-    sidebar.js                   # file info panel
-    tree.js                      # left tree sidebar
-    interactions.js              # OrbitControls + raycaster + render loop
-    styles.css                   # page and sidebar styles
-    tests/
-      *.test.js                  # vitest unit tests (colors, layout, tree)
-      dev-harness.html           # open directly for fast renderer iteration
-      e2e/
-        city.spec.js             # Playwright tests over the real built HTML
-        global-setup.js          # pre-builds test-city.html via build.sh
-        fixtures/manifest.json   # committed scanner output used by e2e
-  skills/codecity/
-    SKILL.md                     # agent instructions (plugin entry point)
-    template.html                # HTML shell with placeholders
-    build.sh                     # fills template + writes self-contained HTML
-```
-
-**Run all tests:**
+Requirements: `python3 ≥ 3.9` and `git`. Node + vite only for `npm run dev` / `npm run build`.
 
 ```bash
-npm test                         # vitest unit + playwright e2e
+npm run dev        # scan cwd, launch vite HMR against src/
+npm run build      # rebuild the shipped plugin artifact
+npm test           # vitest + script tests + build-drift check
 ```
 
-**Run scanner tests directly:**
+Generate an HTML directly without the agent:
 
 ```bash
-bash src/scanner/tests/fixtures/setup.sh
-bash src/scanner/tests/test-scan.sh
-```
-
-**Iterate on the renderer in a browser:**
-
-```bash
-open src/renderer/tests/dev-harness.html   # inline sample, no build step
-```
-
-**Build an HTML manually:**
-
-```bash
-bash src/scanner/scan.sh --root <path> > manifest.json
-bash src/skills/codecity/build.sh \
-  --project NAME \
-  --manifest manifest.json \
-  --config src/config/defaults.json \
-  --output out.html
+python3 src/codecity.py --root /path/to/project --output out.html
 ```
 
 ## License
