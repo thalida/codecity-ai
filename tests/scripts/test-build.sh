@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# test-build.sh — Integration tests for src/scripts/build.sh (sourced as a library).
+# test-build.sh — CLI integration tests for src/scripts/build.py
 #
-# Feeds a minimal manifest + config + a fake template into build_html, then
-# asserts the three placeholders were replaced and the output is well-formed.
+# Invokes build.py as a subprocess with a fabricated template + manifest +
+# config, then asserts the output HTML has all three placeholders replaced
+# and surrounding content is preserved.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BUILD_LIB="$REPO_ROOT/src/scripts/build.sh"  # src/scripts/{scan,build}.sh are the sourced libraries
+BUILD_PY="$REPO_ROOT/src/scripts/build.py"
 
 PASS=0; FAIL=0
 
@@ -39,13 +40,16 @@ assert_not_contains() {
   fi
 }
 
-[ -f "$BUILD_LIB" ] || { echo "ERROR: $BUILD_LIB not found" >&2; exit 1; }
-
-# shellcheck disable=SC1090
-. "$BUILD_LIB"
+[ -f "$BUILD_PY" ] || { echo "ERROR: $BUILD_PY not found" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required" >&2; exit 1; }
 
 # Silence build progress logs during tests.
 export CODECITY_QUIET=1
+
+_run_build() {
+  python3 "$BUILD_PY" \
+    --project "$1" --manifest "$2" --config "$3" --template "$4" --output "$5"
+}
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -71,9 +75,9 @@ echo '{"palette":{".ts":215}}' > "$CONFIG_FILE"
 
 # ── Happy path ────────────────────────────────────────────────────────────────
 echo ""
-echo "build_html: happy path"
+echo "build.py: happy path"
 
-build_html "MyProject" "$MANIFEST_FILE" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT"
+_run_build "MyProject" "$MANIFEST_FILE" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT"
 OUT=$(cat "$OUTPUT")
 
 assert_contains     "project name substituted" "$OUT" "CodeCity — MyProject"
@@ -86,7 +90,7 @@ assert_not_contains "no stray __CONFIG__"      "$OUT" '__CONFIG__'
 
 # ── Script tag wrappers preserved ─────────────────────────────────────────────
 echo ""
-echo "build_html: script tag wrappers"
+echo "build.py: script tag wrappers"
 
 assert_contains "codecity-manifest script tag open"  "$OUT" '<script type="application/json" id="codecity-manifest">'
 assert_contains "codecity-manifest script tag close" "$OUT" '"root":"test","tree":{"name":"test","children":[]}}</script>'
@@ -94,31 +98,31 @@ assert_contains "codecity-config script tag open"    "$OUT" '<script type="appli
 
 # ── Special JSON characters survive ───────────────────────────────────────────
 echo ""
-echo "build_html: JSON with backslashes and ampersands"
+echo "build.py: JSON with backslashes and ampersands"
 
 cat > "$MANIFEST_FILE" <<'EOF'
 {"root":"te\\st","tree":{"name":"a & b","children":[]}}
 EOF
 
-build_html "p&amp" "$MANIFEST_FILE" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT"
+_run_build "p&amp" "$MANIFEST_FILE" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT"
 OUT=$(cat "$OUTPUT")
 assert_contains "backslash preserved" "$OUT" 'te\\st'
 assert_contains "ampersand preserved" "$OUT" '"a & b"'
 
 # ── Error paths ───────────────────────────────────────────────────────────────
 echo ""
-echo "build_html: error paths"
+echo "build.py: error paths"
 
-if build_html "" "$MANIFEST_FILE" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT" 2>/dev/null; then
-  echo "  ✗ missing project arg should fail"; FAIL=$((FAIL + 1))
-else
-  echo "  ✓ missing project arg fails"; PASS=$((PASS + 1))
-fi
-
-if build_html "p" "/does/not/exist.json" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT" 2>/dev/null; then
+if _run_build "p" "/does/not/exist.json" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT" 2>/dev/null; then
   echo "  ✗ missing manifest should fail"; FAIL=$((FAIL + 1))
 else
   echo "  ✓ missing manifest fails"; PASS=$((PASS + 1))
+fi
+
+if _run_build "p" "$MANIFEST_FILE" "$CONFIG_FILE" "/does/not/exist.html" "$OUTPUT" 2>/dev/null; then
+  echo "  ✗ missing template should fail"; FAIL=$((FAIL + 1))
+else
+  echo "  ✓ missing template fails"; PASS=$((PASS + 1))
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

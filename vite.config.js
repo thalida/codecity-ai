@@ -69,12 +69,14 @@ function shipScriptsPlugin() {
       mkdirSync(resolve(skillDir, 'scripts'), { recursive: true });
 
       const copies = [
-        // Entry + data, flat at skills/codecity/
-        { from: 'src/codecity.sh',       to: 'codecity.sh',       mode: 0o755 },
-        { from: 'src/defaults.json',     to: 'defaults.json',     mode: 0o644 },
-        // Sourced bash libraries
-        { from: 'src/scripts/scan.sh',   to: 'scripts/scan.sh',   mode: 0o644 },
-        { from: 'src/scripts/build.sh',  to: 'scripts/build.sh',  mode: 0o644 },
+        // Plugin metadata + entry + data, flat at skills/codecity/
+        { from: 'src/SKILL.md',             to: 'SKILL.md',             mode: 0o644 },
+        { from: 'src/codecity.py',          to: 'codecity.py',          mode: 0o755 },
+        { from: 'src/defaults.json',        to: 'defaults.json',        mode: 0o644 },
+        // Python modules codecity.py imports
+        { from: 'src/scripts/__init__.py',  to: 'scripts/__init__.py',  mode: 0o644 },
+        { from: 'src/scripts/scan.py',      to: 'scripts/scan.py',      mode: 0o755 },
+        { from: 'src/scripts/build.py',     to: 'scripts/build.py',     mode: 0o755 },
       ];
       for (const { from, to, mode } of copies) {
         const s = resolve(repoRoot, from);

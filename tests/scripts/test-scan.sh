@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# test-scan.sh — Integration tests for src/scripts/scan.sh (sourced as a library).
+# test-scan.sh — CLI integration tests for src/scripts/scan.py
 #
-# Run from any directory:
-#   bash tests/scripts/test-scan.sh
+# Invokes the Python scanner as a subprocess and asserts on the JSON it
+# emits. Python unit tests (tests/scripts/test_scan.py) cover the internal
+# API; this file covers the CLI contract.
 #
 # Prerequisites:
 #   - bash tests/fixtures/setup.sh has been run (creates sample-repo)
 #   - jq available on PATH
+#   - python3 on PATH
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SCAN_LIB="$REPO_ROOT/src/scripts/scan.sh"  # src/scripts/{scan,build}.sh are the sourced libraries
+SCAN_PY="$REPO_ROOT/src/scripts/scan.py"
 FIXTURE="$REPO_ROOT/tests/fixtures/sample-repo"
 
 PASS=0
@@ -56,22 +58,17 @@ assert_not_contains() {
 
 echo ""
 echo "Pre-flight checks"
-[ -f "$SCAN_LIB" ] || { echo "  ERROR: scan.sh not found at $SCAN_LIB" >&2; exit 1; }
+[ -f "$SCAN_PY" ] || { echo "  ERROR: scan.py not found at $SCAN_PY" >&2; exit 1; }
 [ -d "$FIXTURE"  ] || { echo "  ERROR: fixture not found — run 'bash tests/fixtures/setup.sh'" >&2; exit 1; }
 git -C "$FIXTURE" rev-parse --git-dir >/dev/null 2>&1 || { echo "  ERROR: fixture not a git repo" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "  ERROR: jq is required but not found" >&2; exit 1; }
-echo "  ✓ scan.sh found; fixture exists; jq available"
-
-# shellcheck disable=SC1090
-. "$SCAN_LIB"
+command -v python3 >/dev/null 2>&1 || { echo "  ERROR: python3 required" >&2; exit 1; }
+echo "  ✓ scan.py found; fixture exists; jq + python3 available"
 
 # Silence progress logs during tests (they'd clutter output).
 export CODECITY_QUIET=1
 
-# Helper: run scan_tree with the given vars set, capture stdout.
-_run_scan() {
-  ROOT="$FIXTURE" DEPTH="" INCLUDE="" EXCLUDE="" GITIGNORE="1" scan_tree
-}
+_run_scan() { python3 "$SCAN_PY" --root "$FIXTURE" "$@"; }
 
 # ── Capture base scan output ──────────────────────────────────────────────────
 OUT=$(_run_scan)
@@ -173,7 +170,7 @@ assert_eq ".git directory not in output" "0" "$GIT_NODES"
 echo ""
 echo "Depth limit (DEPTH=1)"
 
-DEPTH_OUT=$(ROOT="$FIXTURE" DEPTH="1" INCLUDE="" EXCLUDE="" GITIGNORE="1" scan_tree)
+DEPTH_OUT=$(_run_scan --depth 1)
 assert_eq "depth=1 root still has 6 children" "6" \
   "$(echo "$DEPTH_OUT" | jq -r '.tree.children_count')"
 assert_eq "depth=1 src dir has 0 children (not recursed)" "0" \
@@ -185,7 +182,7 @@ assert_eq "depth=1 docs dir has 0 children (not recursed)" "0" \
 echo ""
 echo "Include pattern (INCLUDE='*.ts')"
 
-INC_OUT=$(ROOT="$FIXTURE" DEPTH="" INCLUDE="*.ts" EXCLUDE="" GITIGNORE="1" scan_tree)
+INC_OUT=$(_run_scan --include "*.ts")
 INC_FILES=$(echo "$INC_OUT" | jq -r '[.. | objects | select(.type == "file") | .name] | sort | join(",")')
 
 assert_contains     "include *.ts contains index.ts"   "$INC_FILES" "index.ts"
@@ -198,7 +195,7 @@ assert_not_contains "include *.ts excludes README.md"   "$INC_FILES" "README.md"
 echo ""
 echo "Exclude pattern (EXCLUDE='*.ts')"
 
-EXC_OUT=$(ROOT="$FIXTURE" DEPTH="" INCLUDE="" EXCLUDE="*.ts" GITIGNORE="1" scan_tree)
+EXC_OUT=$(_run_scan --exclude "*.ts")
 EXC_FILES=$(echo "$EXC_OUT" | jq -r '[.. | objects | select(.type == "file") | .name] | sort | join(",")')
 
 assert_not_contains "exclude *.ts removes index.ts"   "$EXC_FILES" "index.ts"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-codecity.sh — Integration test for skills/codecity/codecity.sh (the
+# test-codecity.py — Integration test for skills/codecity/codecity.py (the
 # shipped public entry). Runs it against tests/fixtures/sample-repo and
 # verifies the output HTML has the expected fingerprints.
 #
@@ -11,7 +11,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SHIPPED="$REPO_ROOT/skills/codecity/codecity.sh"
+SHIPPED="$REPO_ROOT/skills/codecity/codecity.py"
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required" >&2; exit 1; }
 FIXTURE="$REPO_ROOT/tests/fixtures/sample-repo"
 
 PASS=0; FAIL=0
@@ -39,16 +40,19 @@ echo "Pre-flight"
 [ -f "$SHIPPED" ] || { echo "  ERROR: $SHIPPED not found — run 'npm run build'" >&2; exit 1; }
 [ -d "$FIXTURE" ] || { echo "  ERROR: $FIXTURE not found — run 'bash tests/fixtures/setup.sh'" >&2; exit 1; }
 [ -f "$REPO_ROOT/skills/codecity/template.html" ] || { echo "  ERROR: template.html not found — run 'npm run build'" >&2; exit 1; }
-echo "  ✓ shipped codecity.sh + template + fixture present"
+echo "  ✓ shipped codecity.py + template + fixture present"
 
 TMPOUT=$(mktemp -t codecity-out-XXXXXX).html
 trap 'rm -f "$TMPOUT"' EXIT
 
+# Silence progress logs during tests.
+export CODECITY_QUIET=1
+
 # ── Happy path ────────────────────────────────────────────────────────────────
 echo ""
-echo "codecity.sh: happy path"
+echo "codecity.py: happy path"
 
-bash "$SHIPPED" --root "$FIXTURE" --output "$TMPOUT" >/dev/null
+python3 "$SHIPPED" --root "$FIXTURE" --output "$TMPOUT" >/dev/null
 
 [ -f "$TMPOUT" ] && [ -s "$TMPOUT" ] \
   && { echo "  ✓ output file written and non-empty"; PASS=$((PASS + 1)); } \
@@ -68,9 +72,9 @@ assert_not_contains "no unreplaced __CONFIG__"           "$OUT" '__CONFIG__'
 
 # ── Usage ────────────────────────────────────────────────────────────────────
 echo ""
-echo "codecity.sh: zero-args prints usage and exits non-zero"
+echo "codecity.py: zero-args prints usage and exits non-zero"
 
-if bash "$SHIPPED" >/dev/null 2>&1; then
+if python3 "$SHIPPED" >/dev/null 2>&1; then
   echo "  ✗ zero-args should exit non-zero"; FAIL=$((FAIL + 1))
 else
   echo "  ✓ zero-args exits non-zero"; PASS=$((PASS + 1))
