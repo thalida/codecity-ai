@@ -11,7 +11,7 @@ Usage:
 One-shot mode: scans the target, fills template.html with the manifest +
 defaults.json, writes a self-contained HTML to --output.
 
-Dev mode: scans once into .dev/ (gitignored) and exec's `npx vite` with
+Dev mode: scans once into build/ (gitignored) and exec's `npx vite` with
 CODECITY_* env vars set so vite's dev-inject plugin can read them.
 
 Dependencies: python3 ≥ 3.9, git. Node/vite only for --dev mode.
@@ -123,10 +123,10 @@ def main(argv: list[str]) -> int:
     dirs = tree.get("descendants_dir_count", "?")
     _log(f"scanned  {files} files, {dirs} dirs ({scan_dt}s)")
 
-    # ── Dev mode: write manifest + config to .dev/, exec vite ───────────────
+    # ── Dev mode: write manifest + config to build/, exec vite ─────────────
     if args.dev:
         repo_root = here.parent
-        dev_dir = repo_root / ".dev"
+        dev_dir = repo_root / "build"
         dev_dir.mkdir(parents=True, exist_ok=True)
         manifest_file = dev_dir / "manifest.json"
         config_file = dev_dir / "config.json"

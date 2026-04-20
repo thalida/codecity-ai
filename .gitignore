@@ -9,8 +9,8 @@ docs/superpowers/
 #   run `bash tests/fixtures/setup.sh` to regenerate
 tests/fixtures/sample-repo/
 
-# Dev-mode scratch (codecity.sh --dev writes manifest/config here)
-.dev/
+# Dev-mode scratch (codecity.py --dev writes manifest/config here)
+build/
 
 # OS
 .DS_Store
