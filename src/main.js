@@ -200,14 +200,26 @@ function _resizeRendererToCanvas(renderer, canvas) {
 }
 
 
-// Boot: read manifest/config from <script type="application/json"> tags that
-// index.html holds as placeholder text (filled by build.sh at skill runtime, or
-// by the vite dev plugin at dev time).
-var manifestEl = document.getElementById('codecity-manifest');
-var configEl   = document.getElementById('codecity-config');
-var canvas     = document.getElementById('city');
+// Exported for testability. Reads a <script type="application/json" id="X">
+// tag and parses its contents. index.html holds these as placeholder text
+// (filled by build.sh at skill runtime, or by the vite dev plugin at dev time).
+export function readEmbeddedJson(id) {
+  var el = document.getElementById(id);
+  if (!el) throw new Error('readEmbeddedJson: missing <script id="' + id + '">');
+  try {
+    return JSON.parse(el.textContent);
+  } catch (e) {
+    throw new Error('readEmbeddedJson: invalid JSON in <script id="' + id + '">: ' + e.message);
+  }
+}
 
-var manifest = JSON.parse(manifestEl.textContent);
-var config   = JSON.parse(configEl.textContent);
-
-startRenderLoop(canvas, manifest, config);
+// Boot. If main.js is imported from a test, the top-level code still runs
+// but typical test environments won't have the script tags + canvas wired up,
+// so tests should import only { readEmbeddedJson } and not trigger the boot.
+// We guard with a feature check to make that safe.
+var _canvas = document.getElementById('city');
+if (_canvas) {
+  var manifest = readEmbeddedJson('codecity-manifest');
+  var config   = readEmbeddedJson('codecity-config');
+  startRenderLoop(_canvas, manifest, config);
+}

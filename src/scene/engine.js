@@ -6,43 +6,7 @@
 // plaza.
 
 import * as THREE from 'three';
-function hslToComponents(hslString) {
-  var inner = hslString.replace(/^hsl\(/i, '').replace(/\)$/, '');
-  var parts = inner.split(',');
-  return {
-    h: parseFloat(parts[0].trim()),
-    s: parseFloat(parts[1].trim()),
-    l: parseFloat(parts[2].trim())
-  };
-}
-
-function componentsToHsl(h, s, l) {
-  return 'hsl(' + Math.round(h) + ', ' + s.toFixed(1) + '%, ' + l.toFixed(1) + '%)';
-}
-
-function shadeColor(hslString, amount) {
-  var c = hslToComponents(hslString);
-  var newL = Math.max(0, Math.min(100, c.l + amount));
-  return componentsToHsl(c.h, c.s, newL);
-}
-
-function shadeAndShiftHue(hslString, lightnessDelta, hueDelta, minLightness) {
-  var c = hslToComponents(hslString);
-  var floor = (minLightness != null) ? minLightness : 0;
-  var newL = Math.max(floor, Math.min(100, c.l + lightnessDelta));
-  var newH = ((c.h + hueDelta) % 360 + 360) % 360;
-  return componentsToHsl(newH, c.s, newL);
-}
-
-// Multiplicative darkening with an absolute floor. Used for side walls so
-// that contrast against the front face scales with the base lightness — dim
-// files still have visibly darker sides without ever crushing to black.
-function shadeByRatio(hslString, ratio, hueDelta, floor) {
-  var c = hslToComponents(hslString);
-  var newL = Math.max(floor, c.l * ratio);
-  var newH = ((c.h + hueDelta) % 360 + 360) % 360;
-  return componentsToHsl(newH, c.s, newL);
-}
+import { shadeColor, shadeAndShiftHue, shadeByRatio } from './hsl.js';
 
 
 // -----------------------------------------------------------------------------

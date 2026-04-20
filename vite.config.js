@@ -1,63 +1,107 @@
 import { defineConfig } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
-import { readFileSync } from 'node:fs';
+import { readFileSync, copyFileSync, chmodSync, mkdirSync, renameSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Project layout:
-//   skills/codecity/src/        — vite root, ES module renderer sources
-//   skills/codecity/dist/       — vite build output (committed)
-//   skills/codecity/defaults.json, tests/e2e/fixtures/manifest.json — dev data
+// Layout:
+//   src/                         — vite root (renderer JS/HTML/CSS + bash sources)
+//   src/scripts/*.sh             — bash sources (copied to skills/codecity/ by closeBundle)
+//   skills/codecity/             — build artifact; template.html + copied bash scripts
 //
-// Dev mode (`npm run dev`):
-//   The `codecity-dev-inject` plugin fills the __MANIFEST__, __CONFIG__, and
-//   __PROJECT_NAME__ tokens in index.html with real fixture content so the
-//   dev server renders a real city. Override the sources via env vars:
-//     CODECITY_MANIFEST=path  CODECITY_CONFIG=path  CODECITY_PROJECT=name
+// Dev mode (`npm run dev`, launched via `codecity.sh --dev`):
+//   codecity.sh exports CODECITY_MANIFEST / CODECITY_CONFIG / CODECITY_PROJECT
+//   pointing at files under .dev/. The dev-inject plugin reads those env vars at
+//   transformIndexHtml time and fills the __MANIFEST__ / __CONFIG__ /
+//   __PROJECT_NAME__ placeholders.
 //
 // Build mode (`npm run build`):
-//   No substitution happens — the tokens are left in place so build.sh can
-//   fill them on the user's machine at skill runtime. vite-plugin-singlefile
-//   inlines all JS + CSS (including Three.js) into one HTML file.
+//   Produces skills/codecity/template.html with placeholders intact (build.sh
+//   fills them at skill runtime). closeBundle hook copies src/scripts/*.sh into
+//   the right spots in skills/codecity/.
 
 const repoRoot = import.meta.dirname;
-const skillRoot = resolve(repoRoot, 'skills/codecity');
-const srcRoot = resolve(skillRoot, 'src');
+const skillDir = resolve(repoRoot, 'skills/codecity');
 
-const defaultManifest = resolve(skillRoot, 'tests/e2e/fixtures/manifest.json');
-const defaultConfig   = resolve(skillRoot, 'defaults.json');
+// Three.js is loaded from CDN via the importmap in index.html, so rollup
+// treats it as external. Our own code + CSS still gets inlined into a single
+// HTML by viteSingleFile.
+const THREE_EXTERNAL = [/^three$/, /^three\/addons\//];
 
 function devInjectPlugin() {
   return {
     name: 'codecity-dev-inject',
     apply: 'serve',
     transformIndexHtml(html) {
-      const manifestPath = process.env.CODECITY_MANIFEST || defaultManifest;
-      const configPath   = process.env.CODECITY_CONFIG   || defaultConfig;
-      const project      = process.env.CODECITY_PROJECT  || 'dev';
+      const manifestPath = process.env.CODECITY_MANIFEST;
+      const configPath   = process.env.CODECITY_CONFIG;
+      const project      = process.env.CODECITY_PROJECT || 'dev';
+      if (!manifestPath || !configPath) {
+        throw new Error(
+          'CODECITY_MANIFEST and CODECITY_CONFIG must be set for the dev server.\n' +
+          'Run `npm run dev -- --root <path>` (that invokes codecity.sh --dev).'
+        );
+      }
       const manifest = readFileSync(manifestPath, 'utf8').trim();
       const config   = readFileSync(configPath,   'utf8').trim();
       return html
-        .replace('__PROJECT_NAME__', project)
+        .replaceAll('__PROJECT_NAME__', project)
         .replace('__MANIFEST__', manifest)
-        .replace('__CONFIG__', config);
+        .replace('__CONFIG__',   config);
+    },
+  };
+}
+
+// After the build, (a) rename the single HTML to skills/codecity/template.html,
+// (b) copy bash modules + codecity.sh, (c) copy defaults.json. Vite writes to
+// outDir (skills/codecity/) as index.html, then we rename.
+function shipScriptsPlugin() {
+  return {
+    name: 'codecity-ship-scripts',
+    apply: 'build',
+    closeBundle() {
+      const template = resolve(skillDir, 'template.html');
+      const indexOut = resolve(skillDir, 'index.html');
+      if (existsSync(indexOut)) {
+        if (existsSync(template)) unlinkSync(template);
+        renameSync(indexOut, template);
+      }
+
+      mkdirSync(resolve(skillDir, 'scripts'), { recursive: true });
+
+      const copies = [
+        // Entry + data, flat at skills/codecity/
+        { from: 'src/codecity.sh',       to: 'codecity.sh',       mode: 0o755 },
+        { from: 'src/defaults.json',     to: 'defaults.json',     mode: 0o644 },
+        // Sourced bash libraries
+        { from: 'src/scripts/scan.sh',   to: 'scripts/scan.sh',   mode: 0o644 },
+        { from: 'src/scripts/build.sh',  to: 'scripts/build.sh',  mode: 0o644 },
+      ];
+      for (const { from, to, mode } of copies) {
+        const s = resolve(repoRoot, from);
+        const d = resolve(skillDir, to);
+        copyFileSync(s, d);
+        chmodSync(d, mode);
+      }
     },
   };
 }
 
 export default defineConfig({
-  root: srcRoot,
+  root: resolve(repoRoot, 'src'),
   base: './',
   build: {
-    outDir: resolve(skillRoot, 'dist'),
-    emptyOutDir: true,
+    outDir: skillDir,
+    emptyOutDir: false,       // don't wipe SKILL.md, defaults.json, scripts/
     assetsInlineLimit: 100_000_000,
     cssCodeSplit: false,
     rollupOptions: {
+      external: THREE_EXTERNAL,
       output: { inlineDynamicImports: true },
     },
   },
   plugins: [
     devInjectPlugin(),
     viteSingleFile(),
+    shipScriptsPlugin(),
   ],
 });

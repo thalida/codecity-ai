@@ -1,0 +1,24 @@
+{
+  "output_dir": "~/.codecity",
+  "depth": null,
+  "gitignore": true,
+  "street_tiers": [3, 8, 15, 30],
+  "building": {
+    "min_height": 4,
+    "max_height": 120,
+    "min_width": 6,
+    "max_width": 40
+  },
+  "saturation": { "min": 20, "max": 100 },
+  "lightness": { "min": 25, "max": 70 },
+  "palette": {
+    ".js": 220, ".ts": 215, ".jsx": 225, ".tsx": 210, ".mjs": 220,
+    ".py": 15, ".pyx": 20, ".pyi": 10,
+    ".css": 150, ".scss": 145, ".less": 155, ".sass": 148,
+    ".html": 175, ".vue": 170, ".svelte": 180,
+    ".json": 50, ".yaml": 55, ".toml": 45, ".ini": 52,
+    ".md": 275, ".txt": 280, ".rst": 270,
+    ".sh": 35, ".bash": 38, ".zsh": 32,
+    ".go": 185, ".rs": 5
+  }
+}
