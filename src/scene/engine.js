@@ -337,29 +337,27 @@ function createStreetMesh(street, yBase) {
 // octahedron). Render loop drives the rotation and a subtle bob via
 // `userData.gem`.
 // -----------------------------------------------------------------------------
-// 8 gem faces in the GOLD family — amber/honey/yellow tones with varied
-// brightness so the gem has life without leaving its color family.
+// 8 gem faces in a PRISMATIC palette — high-saturation hues spaced around the
+// color wheel so no face blends with nearby building colors and the gem reads
+// as an unambiguous "root" beacon regardless of what's around it.
 var _GEM_FACE_COLORS = [
-  [1.00, 0.84, 0.20],   // classic gold
-  [1.00, 0.72, 0.05],   // amber
-  [1.00, 0.92, 0.40],   // pale gold
-  [0.95, 0.60, 0.00],   // deep gold / saffron
-  [1.00, 0.80, 0.35],   // honey
-  [0.85, 0.55, 0.10],   // bronze-gold
-  [1.00, 0.95, 0.55],   // champagne
-  [1.00, 0.68, 0.20]    // warm amber
+  [1.00, 0.20, 0.55],   // hot pink
+  [0.15, 0.90, 1.00],   // cyan
+  [0.75, 1.00, 0.20],   // chartreuse
+  [0.60, 0.25, 1.00],   // violet
+  [1.00, 0.55, 0.10],   // orange
+  [1.00, 0.20, 0.90],   // magenta
+  [0.15, 1.00, 0.75],   // aqua
+  [0.40, 1.00, 0.30]    // lime
 ];
-var _GEM_EDGES   = 0xfff4c2;   // warm pale gold edges
-var _PLAZA_BORDER = 0xb8b8c4;  // cool light gray — neutral, doesn't steal the gem's spotlight
-var _PLAZA_CORE   = 0x1a1026;  // deep plum-black core, reads the border cleanly
+var _GEM_EDGES   = 0xf0f0ff;   // near-white — neutral separator between vivid faces
 
 function createRootGem(street) {
   var group = new THREE.Group();
 
   // Size scales with the street so the gem stays proportionate to the city.
   // Plaza matches the street width EXACTLY so it reads as a continuation of
-  // the road. Gem is a bit smaller than the plaza so it fits within the
-  // bordered core when viewed top-down.
+  // the road.
   var plazaSize = street.width;
   var radius = Math.min(plazaSize * 0.35, street.width * 0.45);
   if (radius < 5) radius = 5;
@@ -377,28 +375,17 @@ function createRootGem(street) {
     gemZ = street.y - street.length / 2 - plazaSize / 2;
   }
 
-  // ---- Plaza: two-layer pad (single border) ---------------------------------
-  // Outer: gold border, matches the gem family and stands out against the bg.
-  // Core:  deep plum-black so the gold reads as a clean single frame.
-  var plazaBorder = new THREE.Mesh(
+  // ---- Plaza: single sidewalk-colored pad -----------------------------------
+  // Reads as a continuation of the sidewalk so the gem is the only thing
+  // drawing the eye.
+  var plaza = new THREE.Mesh(
     new THREE.PlaneGeometry(plazaSize, plazaSize),
-    _flatMat(_PLAZA_BORDER, 1)
+    _flatMat(STREET_COLOR_SIDEWALK, 1)
   );
-  plazaBorder.rotation.x = -Math.PI / 2;
-  plazaBorder.position.set(gemX, 0, gemZ);
-  plazaBorder.renderOrder = 1;
-  group.add(plazaBorder);
-
-  var borderWidth = plazaSize * 0.12;
-  var coreSize = plazaSize - borderWidth * 2;
-  var plazaCore = new THREE.Mesh(
-    new THREE.PlaneGeometry(coreSize, coreSize),
-    _flatMat(_PLAZA_CORE, 2)
-  );
-  plazaCore.rotation.x = -Math.PI / 2;
-  plazaCore.position.set(gemX, 0, gemZ);
-  plazaCore.renderOrder = 2;
-  group.add(plazaCore);
+  plaza.rotation.x = -Math.PI / 2;
+  plaza.position.set(gemX, 0, gemZ);
+  plaza.renderOrder = 1;
+  group.add(plaza);
 
   // ---- Gem: per-face colored octahedron -------------------------------------
   var geo = new THREE.OctahedronGeometry(radius, 0);
@@ -431,6 +418,7 @@ function createRootGem(street) {
   gem.add(edges);
   gem.position.set(gemX, hoverY, gemZ);
   gem.userData.baseY = hoverY;
+  gem.userData.bobAmp = radius * 0.5;
   gem.userData.type = 'root-gem';
 
   group.add(gem);

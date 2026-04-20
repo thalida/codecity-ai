@@ -162,7 +162,7 @@ function startRenderLoop(canvas, manifest, config) {
     if (rootGem) {
       var t = (performance.now() - startTime) / 1000;
       rootGem.rotation.y = t * 0.6;
-      rootGem.position.y = rootGem.userData.baseY + Math.sin(t * 1.4) * 1.5;
+      rootGem.position.y = rootGem.userData.baseY + Math.sin(t * 1.8) * rootGem.userData.bobAmp;
     }
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
