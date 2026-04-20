@@ -44,6 +44,9 @@ assert_not_contains() {
 # shellcheck disable=SC1090
 . "$BUILD_LIB"
 
+# Silence build progress logs during tests.
+export CODECITY_QUIET=1
+
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 

@@ -10,3 +10,5 @@
 - [ ] commiters as people (?)
 - [ ] clean up blocks and hitTestBlock
 - [ ] rounded street ends
+- [ ] rename .dev to build or dist
+- [ ] Update README.md

@@ -7,7 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "dev":          "bash src/codecity.sh --dev",
+    "dev":          "bash src/codecity.sh --dev --root .",
     "build":        "vite build",
     "test":         "vitest run && npm run test:scripts && npm run test:drift",
     "test:unit":    "vitest run",

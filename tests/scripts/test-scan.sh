@@ -65,6 +65,9 @@ echo "  ✓ scan.sh found; fixture exists; jq available"
 # shellcheck disable=SC1090
 . "$SCAN_LIB"
 
+# Silence progress logs during tests (they'd clutter output).
+export CODECITY_QUIET=1
+
 # Helper: run scan_tree with the given vars set, capture stdout.
 _run_scan() {
   ROOT="$FIXTURE" DEPTH="" INCLUDE="" EXCLUDE="" GITIGNORE="1" scan_tree

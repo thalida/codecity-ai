@@ -20,6 +20,12 @@
 
 set -euo pipefail
 
+# ── Progress logging ─────────────────────────────────────────────────────────
+# Prefix every status line so the user can see the phase and elapsed time.
+# Goes to stderr so scan_tree's JSON (which we redirect to a file) stays clean.
+_t_start=$SECONDS
+_log() { [[ "${CODECITY_QUIET:-0}" == "1" ]] || printf '[codecity %4ds] %s\n' "$((SECONDS - _t_start))" "$*" >&2; }
+
 _usage() {
   cat <<'EOF'
 Usage:
@@ -107,8 +113,25 @@ else
   CONFIG_FILE="$TMPDIR/config.json"
 fi
 
+_log "project: $PROJECT"
+_log "root:    $(cd "$ROOT" && pwd)"
+if [[ -n "$DEPTH"   ]]; then _log "depth:   $DEPTH"; fi
+if [[ -n "$INCLUDE" ]]; then _log "include: $INCLUDE"; fi
+if [[ -n "$EXCLUDE" ]]; then _log "exclude: $EXCLUDE"; fi
+if [[ "$GITIGNORE" == "0" ]]; then _log "gitignore: off"; fi
+_log "mode:    $([[ "$DEV_MODE" == "1" ]] && echo "dev (vite HMR)" || echo "one-shot → $OUTPUT")"
+
+# ── Scan ──────────────────────────────────────────────────────────────────────
+_log "scanning…"
+scan_start=$SECONDS
 export ROOT DEPTH INCLUDE EXCLUDE GITIGNORE
 scan_tree > "$MANIFEST_FILE"
+
+# Extract a few counts for feedback.
+manifest_size=$(wc -c < "$MANIFEST_FILE" | tr -d ' ')
+files_count=$(jq '.tree.descendants_file_count' "$MANIFEST_FILE" 2>/dev/null || echo "?")
+dirs_count=$(jq  '.tree.descendants_dir_count'  "$MANIFEST_FILE" 2>/dev/null || echo "?")
+_log "scanned  $files_count files, $dirs_count dirs → $(( manifest_size / 1024 )) KB manifest ($((SECONDS - scan_start))s)"
 
 # Config is just defaults.json — no CLI palette override. Users customize by
 # editing defaults.json directly.
@@ -119,8 +142,13 @@ if [[ "$DEV_MODE" == "1" ]]; then
   export CODECITY_MANIFEST="$MANIFEST_FILE"
   export CODECITY_CONFIG="$CONFIG_FILE"
   cd "$REPO_ROOT"
+  _log "starting vite dev server (Ctrl-C to stop)…"
   exec npx vite
 fi
 
+_log "writing HTML…"
+build_start=$SECONDS
 build_html "$PROJECT" "$MANIFEST_FILE" "$CONFIG_FILE" "$TEMPLATE" "$OUTPUT"
-echo "Built: $OUTPUT"
+out_size=$(wc -c < "$OUTPUT" | tr -d ' ')
+_log "built    $OUTPUT ($(( out_size / 1024 )) KB, $((SECONDS - build_start))s)"
+_log "done     total ${SECONDS}s"

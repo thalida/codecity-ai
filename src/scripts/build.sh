@@ -10,6 +10,9 @@
 #
 # Depends on: awk, sed, mktemp. (No jq here.)
 
+# Progress logger (stderr). Silenced by CODECITY_QUIET=1.
+_build_log() { [[ "${CODECITY_QUIET:-0}" == "1" ]] || printf '[build] %s\n' "$*" >&2; }
+
 # awk substitution — inserts a file's contents in place of an inline marker.
 # Handles the vite-built template where placeholders like __MANIFEST__ sit
 # inside a <script> tag on the same line. Finds the marker with index() and
@@ -51,9 +54,13 @@ build_html() {
   mkdir -p "$(dirname "$output")"
   local tmp1="$tmpdir/step1.html" tmp2="$tmpdir/step2.html"
 
+  _build_log "inlining manifest ($(wc -c < "$manifest_file" | tr -d ' ') bytes)…"
   _build_replace_marker '__MANIFEST__' "$manifest_file" < "$template" > "$tmp1"
+
+  _build_log "inlining config ($(wc -c < "$config_file" | tr -d ' ') bytes)…"
   _build_replace_marker '__CONFIG__'   "$config_file"   < "$tmp1"     > "$tmp2"
 
+  _build_log "substituting project name ($project)…"
   # Project name is a plain string substitution. Escape / and & so sed doesn't
   # reinterpret them (project name is usually a filesystem base name).
   local escaped_project

@@ -20,6 +20,11 @@ declare -A _SCAN_GIT_MODIFIED
 declare -A _SCAN_GIT_COMMITS
 declare -A _SCAN_GIT_CONTRIBUTORS
 declare -A _SCAN_TRACKED_FILES
+_SCAN_FILES_SEEN=0
+
+# Progress logger. Writes to stderr so stdout stays JSON-clean.
+# Silenced by CODECITY_QUIET=1 (tests set this).
+_scan_log() { [[ "${CODECITY_QUIET:-0}" == "1" ]] || printf '[scan] %s\n' "$*" >&2; }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 _scan_epoch_to_iso() {
@@ -180,6 +185,11 @@ _scan_build_tree() {
     descendants_file_count=$((descendants_file_count + 1))
     fsize=$(echo "$fjson" | jq '.size')
     descendants_size=$((descendants_size + fsize))
+    _SCAN_FILES_SEEN=$((_SCAN_FILES_SEEN + 1))
+    # Heartbeat every 25 files so large repos show progress.
+    if (( _SCAN_FILES_SEEN % 25 == 0 )); then
+      _scan_log "  walked $_SCAN_FILES_SEEN files so far…"
+    fi
   done
 
   for dentry in "${dir_entries[@]+"${dir_entries[@]}"}"; do
@@ -273,6 +283,7 @@ _scan_build_tree() {
 scan_tree() {
   [[ -n "${ROOT:-}" ]] || { echo "scan_tree: ROOT is required" >&2; return 2; }
   _SCAN_ROOT="$(cd "$ROOT" && pwd)"
+  _scan_log "resolving $_SCAN_ROOT"
 
   # Reset per-call state
   _SCAN_GIT_CREATED=()
@@ -280,6 +291,7 @@ scan_tree() {
   _SCAN_GIT_COMMITS=()
   _SCAN_GIT_CONTRIBUTORS=()
   _SCAN_TRACKED_FILES=()
+  _SCAN_FILES_SEEN=0
 
   _SCAN_IS_GIT_REPO=false
   if git -C "$_SCAN_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
@@ -287,6 +299,7 @@ scan_tree() {
   fi
 
   if [[ "$_SCAN_IS_GIT_REPO" == "true" ]]; then
+    _scan_log "git repo detected — collecting commit metadata…"
     local current_date line info
     while IFS= read -r line; do
       if [[ "$line" == COMMIT:* ]]; then
@@ -296,6 +309,8 @@ scan_tree() {
         _SCAN_GIT_CREATED["$line"]="$current_date"
       fi
     done < <(git -C "$_SCAN_ROOT" log --format="COMMIT:%H %aI" --name-only --diff-filter=A 2>/dev/null)
+
+    _scan_log "  collected creation dates for ${#_SCAN_GIT_CREATED[@]} files"
 
     declare -A _file_contributors
     local current_author key contrib_str json_arr
@@ -320,7 +335,9 @@ scan_tree() {
       json_arr=$(printf '%s' "$contrib_str" | tr '|' '\n' | grep -v '^$' | sort -u | jq -R . | jq -sc .)
       _SCAN_GIT_CONTRIBUTORS["$fpath"]="$json_arr"
     done
+    _scan_log "  collected contributors for ${#_SCAN_GIT_CONTRIBUTORS[@]} files"
 
+    _scan_log "  collecting per-file modified date + commit count…"
     while IFS= read -r fpath; do
       _SCAN_GIT_MODIFIED["$fpath"]=$(git -C "$_SCAN_ROOT" log -1 --format="%aI" -- "$fpath" 2>/dev/null || echo "")
       _SCAN_GIT_COMMITS["$fpath"]=$(git -C "$_SCAN_ROOT" rev-list --count HEAD -- "$fpath" 2>/dev/null || echo "0")
@@ -335,12 +352,20 @@ scan_tree() {
           dir="$(dirname "$dir")"
         done
       done < <(git -C "$_SCAN_ROOT" ls-files 2>/dev/null)
+      _scan_log "  .gitignore filtering on — ${#_SCAN_TRACKED_FILES[@]} tracked entries"
     fi
+  else
+    _scan_log "not a git repo — filesystem dates only"
   fi
 
   local scanned_at tree
   scanned_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  _scan_log "walking tree (per-file git log + file_json; this is the slow phase)…"
   tree=$(_scan_build_tree "$_SCAN_ROOT" "." 0)
+  # Note: _SCAN_FILES_SEEN increments inside a subshell so we can't report the
+  # final total here. Heartbeats inside _scan_build_tree show progress for
+  # large repos. codecity.sh reports the final count via jq.
+  _scan_log "tree walked; emitting manifest JSON"
 
   jq -n \
     --arg root "$_SCAN_ROOT" \
